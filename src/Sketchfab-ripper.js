@@ -172,6 +172,35 @@
     // ====================================================================
     // Texture capture
     // ====================================================================
+    var _usedTextureNames = {};
+
+    function sanitizeTextureName(raw) {
+        if (!raw) return '';
+        var s = String(raw);
+        try { s = decodeURIComponent(s); } catch (e) {}
+        s = s.replace(/\.(jpe?g|png|webp|gif|ktx2?|basis|tga|bmp)$/i, '');
+        s = s.replace(/[<>:"\/\\|?*\x00-\x1f]/g, '_').trim();
+        return s;
+    }
+
+    function deriveTextureName(url) {
+        if (!url) return 'texture';
+        var clean = String(url).split('?')[0].split('#')[0];
+        var base = clean.substring(clean.lastIndexOf('/') + 1);
+        var s = sanitizeTextureName(base);
+        return s || 'texture';
+    }
+
+    function pickTextureName(imagemodel, url) {
+        // Prefer Sketchfab's metadata name (semantic, e.g.
+        // "Patriot_Radar_Body_D_Desert"). Fall back to URL base if
+        // metadata is missing or empty.
+        var metaName = imagemodel && imagemodel.attributes && imagemodel.attributes.name;
+        var s = sanitizeTextureName(metaName);
+        if (s) return s;
+        return deriveTextureName(url);
+    }
+
     window.drawhookcanvas = function (e, imagemodel) {
         try {
             if (!e) return e;
@@ -180,7 +209,13 @@
                 (e.width === 64  && e.height === 64)) return e;
             if (imagemodel && e.options && imagemodel.attributes && imagemodel.attributes.images) {
                 var alpha = e.options.format;
-                var filename_image = imagemodel.attributes.name;
+                // --- diagnostic: capture both name sources ---
+                window.__ripperTexInfo = window.__ripperTexInfo || [];
+                var _imgModelName = (imagemodel && imagemodel.attributes &&
+                                     imagemodel.attributes.name) || null;
+                var _eUrl = e.url;
+                // ----------------------------------------------
+                var filename_image = null; // derived from URL below
                 var url_image = e.url, max_size = 0, obr = e;
                 imagemodel.attributes.images.forEach(function (img) {
                     var ok = alpha === 'A' ? img.options.format === alpha : true;
@@ -190,7 +225,17 @@
                     }
                 });
                 if (!saveimagecache2[url_image]) {
-                    saveimagecache2[url_image] = { name: filename_image || 'texture' };
+                    var base = pickTextureName(imagemodel, url_image);
+                    var texName = base, n = 1;
+                    while (_usedTextureNames[texName]) texName = base + '_' + (n++);
+                    _usedTextureNames[texName] = true;
+                    saveimagecache2[url_image] = { name: texName };
+                    window.__ripperTexInfo.push({
+                        url_image: url_image,
+                        e_url: _eUrl,
+                        imagemodel_name: _imgModelName,
+                        chosen: texName
+                    });
                 }
                 return obr;
             }
@@ -218,13 +263,14 @@
             var id = ctx.createImageData(width, height);
             id.data.set(data);
             ctx.putImageData(id, 0, 0);
-            var re = /(?:\.([^.]+))?$/, ext = re.exec(saveimagecache2[url].name)[1];
-            var name = saveimagecache2[url].name + '.png';
-            if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
-                name = saveimagecache2[url].name.replace('.' + ext, '') + '.png';
-            }
-            saveimagecache2[url].dataURL = canvas.toDataURL('image/png');
-            canvas.toBlob(function (b) { objects[name] = b; }, 'image/png');
+            var isJpeg = /\.(jpe?g)(?:\?|$)/i.test(url);
+            var mime   = isJpeg ? 'image/jpeg' : 'image/png';
+            var ext    = isJpeg ? '.jpg' : '.png';
+            var q      = isJpeg ? 0.92 : undefined;
+            var name   = saveimagecache2[url].name + ext;
+            saveimagecache2[url].fileExt = ext;
+            saveimagecache2[url].dataURL = canvas.toDataURL(mime, q);
+            canvas.toBlob(function (b) { objects[name] = b; }, mime, q);
         } catch (e) { warn('drawhookimg', e.message); }
     };
 
@@ -596,12 +642,16 @@
             });
 
             var images = [], textures = [];
+            var textureUrlToIndex = {};
             for (var key in saveimagecache2) {
                 var t = saveimagecache2[key];
                 if (!t || !t.dataURL) continue;
+                var ext = t.fileExt || '.png';
+                var path = 'textures/' + (t.name || 'texture') + ext;
                 var ii = images.length;
-                images.push({ uri: t.dataURL });
+                images.push({ uri: path });
                 textures.push({ source: ii });
+                textureUrlToIndex[key] = ii;
             }
             if (textures.length) {
                 mats.forEach(function (m) {
@@ -861,7 +911,9 @@
             var zip = new JSZip();
             zip.file(modelName + '.glb', new Blob([glb], { type: 'application/octet-stream' }));
             for (var tn in objects) {
-                if (objects.hasOwnProperty(tn) && objects[tn]) zip.file(tn, objects[tn]);
+                if (objects.hasOwnProperty(tn) && objects[tn]) {
+                    zip.file('textures/' + tn, objects[tn]);
+                }
             }
             zip.generateAsync({ type: 'blob' }).then(function (content) {
                 saveAs(content, modelName + '.zip');
@@ -987,4 +1039,105 @@
             setTimeout(addbtnfunc, 500);
         }
     })();
+
+    // ====================================================================
+    // Debug: dump uniform lists so we can wire materials → textures
+    // ====================================================================
+    window.dumpRipperUniforms = function () {
+        if (!window.allmodel.length) { log('no meshes loaded yet'); return; }
+        var obj = window.allmodel[0];
+        var ss = obj.stateset;
+        if (!ss) { log('no stateset'); return; }
+
+        log('=== 1. ss.uniforms ===');
+        var u = ss.uniforms;
+        log('  type:', typeof u, ' isArray:', Array.isArray(u),
+            ' ctor:', u && u.constructor && u.constructor.name);
+        if (u && typeof u === 'object') {
+            var uks = Object.keys(u);
+            log('  keys (' + uks.length + '):');
+            for (var i = 0; i < uks.length; i++) {
+                var un = uks[i], uv = u[un];
+                var uvT = uv == null ? 'null'
+                        : ((uv.constructor && uv.constructor.name) || typeof uv);
+                var hint = '';
+                if (uv && uv._image) hint = ' | _image';
+                if (uv && uv._imageModel) hint = ' | _imageModel';
+                if (uv && uv.url) hint += ' | url=' + uv.url;
+                if (uv && typeof uv === 'object' && uv._name) hint += ' | name=' + uv._name;
+                log('    ' + un + ' → ' + uvT + hint);
+            }
+        }
+
+        log('=== 2. ss._textureAttributeArrayList ===');
+        var ta = ss._textureAttributeArrayList;
+        log('  type:', typeof ta, ' isArray:', Array.isArray(ta),
+            ' len:', ta && ta.length);
+        if (ta && ta.length) {
+            for (var j = 0; j < ta.length; j++) {
+                var t = ta[j];
+                if (!t) { log('    [' + j + '] null'); continue; }
+                var tks = [];
+                for (var tk in t) { if (t.hasOwnProperty(tk)) tks.push(tk); }
+                log('    [' + j + '] ctor=' + (t.constructor && t.constructor.name),
+                    ' keys=' + tks.join(','));
+                if (t._image) {
+                    log('       _image.url =', t._image._url || t._image.url || '?');
+                    log('       _image.name =', t._image._name || t._image.name || '?');
+                }
+                if (t._imageModel) {
+                    log('       _imageModel.attrs.name =',
+                        (t._imageModel.attributes && t._imageModel.attributes.name) || '?');
+                }
+                if (t._texture) {
+                    log('       _texture ctor =',
+                        t._texture.constructor && t._texture.constructor.name);
+                }
+                if (t._name) log('       _name =', t._name);
+            }
+        }
+
+        log('=== 3. ss._shaderGeneratorPair ===');
+        var sp = ss._shaderGeneratorPair;
+        if (sp) {
+            var spk = [];
+            for (var sp1 in sp) { if (sp.hasOwnProperty(sp1)) spk.push(sp1); }
+            log('  keys:', spk.join(','));
+        } else log('  null');
+
+        log('=== 4. ss.getUniformList() contents ===');
+        try {
+            var ul = ss.getUniformList();
+            var ulk = Object.keys(ul);
+            log('  keys (' + ulk.length + '):', ulk.join(', '));
+            for (var k = 0; k < ulk.length; k++) {
+                var key = ulk[k], val = ul[key];
+                var vT = val == null ? 'null'
+                       : ((val.constructor && val.constructor.name) || typeof val);
+                var ex = '';
+                if (val && val._image) ex = ' | _image';
+                if (val && val._imageModel) ex = ' | _imageModel';
+                log('    ' + key + ' → ' + vT + ex);
+            }
+        } catch (e) { log('  threw:', e.message); }
+
+        log('=== 5. walk parents for texture state ===');
+        var curr = obj, lvl = 0;
+        while (curr && lvl++ < 6) {
+            var cName = curr._name ||
+                (curr.stateset && curr.stateset._name) || '?';
+            var cSS = curr.stateset;
+            var hasTA = cSS && cSS._textureAttributeArrayList &&
+                        cSS._textureAttributeArrayList.length;
+            var hasU  = cSS && cSS.uniforms &&
+                        Object.keys(cSS.uniforms).length;
+            log('  [' + lvl + '] ' + cName
+                + ' | stateset=' + (cSS ? 'yes' : 'no')
+                + ' uniforms=' + (hasU || 0)
+                + ' texAttrs=' + (hasTA || 0));
+            curr = curr._parents && curr._parents[0];
+        }
+
+        log('--- end of dump v3 ---');
+    };
 })();
