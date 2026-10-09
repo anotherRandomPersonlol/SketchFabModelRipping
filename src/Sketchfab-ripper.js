@@ -19,6 +19,7 @@
     window.recordedFrames      = [];
     window.recordingStartTime  = 0;
     window.recordingRafId      = null;
+    window._anyAnchorsMatched  = false;
 
     var saveimagecache2 = {};
     var objects         = {};
@@ -318,6 +319,28 @@
         document.body.appendChild(panel);
         button_dw = true;
         log('panel added');
+
+        // Warn if the bad bundle was served. After 8s, show hint. After
+        // 12s, auto-reload once (guarded by sessionStorage so we don't loop).
+        setTimeout(function () {
+            if (window._anyAnchorsMatched) return;
+            var s = document.getElementById('ripper-status');
+            if (s) {
+                s.textContent = '⚠ no anchors — reload page';
+                s.style.color = '#f80';
+            }
+            log('no anchors matched after 8s; bundle is the incompatible build');
+        }, 8000);
+
+        setTimeout(function () {
+            if (window._anyAnchorsMatched) return;
+            var already;
+            try { already = sessionStorage.getItem('ripper_reloaded'); } catch (e) { already = '1'; }
+            if (already) return;
+            try { sessionStorage.setItem('ripper_reloaded', '1'); } catch (e) {}
+            log('no anchors after 12s, auto-reloading once');
+            location.reload();
+        }, 12000);
 
         setInterval(function () {
             var s = document.getElementById('ripper-status');
@@ -858,7 +881,11 @@
                 setTimeout(addbtnfunc, 2000);
             }
 
-            if (applied.length) log('patched', src.split('/').pop(), '→', applied.join(','));
+            if (applied.length) {
+                window._anyAnchorsMatched = true;
+                try { sessionStorage.removeItem('ripper_reloaded'); } catch (e) {}
+                log('patched', src.split('/').pop(), '→', applied.join(','));
+            }
 
             var s = document.createElement('script');
             s.type = 'text/javascript';
