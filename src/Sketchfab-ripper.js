@@ -25,7 +25,31 @@
     var objects         = {};
     var button_dw       = false;
 
-    var MAX_RECORD_SECONDS = 5;
+    var CONFIG = {
+        MAX_RECORD_SECONDS: 5,
+        AUTO_RELOAD_ON_FAILURE: true
+    };
+    var CONFIG_KEY = 'ripper_config_v1';
+
+    function loadConfig() {
+        try {
+            var saved = localStorage.getItem(CONFIG_KEY);
+            if (!saved) return;
+            var parsed = JSON.parse(saved);
+            for (var k in parsed) {
+                if (parsed.hasOwnProperty(k) && CONFIG.hasOwnProperty(k)) {
+                    CONFIG[k] = parsed[k];
+                }
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    function saveConfig() {
+        try { localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG)); }
+        catch (e) { /* ignore */ }
+    }
+
+    loadConfig();
 
     // Z-up -> Y-up. Maps (x, y, z) -> (x, z, -y).
     var YUP = [
@@ -247,13 +271,13 @@
         window.recordedFrames = [];
         window.recordingStartTime = performance.now() / 1000;
         setRecLabel('STOP');
-        log('recording started (max ' + MAX_RECORD_SECONDS + 's)');
+        log('recording started (max ' + CONFIG.MAX_RECORD_SECONDS + 's)');
         function tick() {
             if (!window.animationRecording) return;
             var t = performance.now() / 1000 - window.recordingStartTime;
             var snap = snapshotFrame();
             window.recordedFrames.push({ time: t, meshes: snap.meshes });
-            if (t >= MAX_RECORD_SECONDS) { stopRecording(); return; }
+            if (t >= CONFIG.MAX_RECORD_SECONDS) { stopRecording(); return; }
             window.recordingRafId = requestAnimationFrame(tick);
         }
         window.recordingRafId = requestAnimationFrame(tick);
@@ -290,10 +314,21 @@
             'box-shadow:0 4px 16px rgba(0,0,0,0.5)'
         ].join(';');
 
+        var titleRow = document.createElement('div');
+        titleRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding-bottom:4px;border-bottom:1px solid #444;';
+
         var title = document.createElement('div');
-        title.textContent = 'MODEL RIPPER V16';
-        title.style.cssText = 'font-weight:bold;color:#f80;text-align:center;padding-bottom:4px;border-bottom:1px solid #444;cursor:move;user-select:none;';
-        panel.appendChild(title);
+        title.textContent = 'MODEL RIPPER';
+        title.style.cssText = 'font-weight:bold;color:#f80;cursor:move;user-select:none;flex:1;text-align:left;';
+        titleRow.appendChild(title);
+
+        var gear = document.createElement('span');
+        gear.textContent = '⚙';
+        gear.title = 'Settings';
+        gear.style.cssText = 'cursor:pointer;color:#aaa;font-size:14px;padding:0 4px;user-select:none;';
+        titleRow.appendChild(gear);
+
+        panel.appendChild(titleRow);
 
         var btnDL = document.createElement('button');
         btnDL.textContent = 'DOWNLOAD GLB';
@@ -316,6 +351,54 @@
         status.textContent = 'idle';
         panel.appendChild(status);
 
+        // ---- config form (hidden until gear clicked) ----
+        var configDiv = document.createElement('div');
+        configDiv.id = 'ripper-config';
+        configDiv.style.cssText = 'display:none;flex-direction:column;gap:5px;padding-top:5px;border-top:1px solid #444;font-size:11px;';
+
+        var row1 = document.createElement('div');
+        row1.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label1 = document.createElement('span');
+        label1.textContent = 'Max seconds:';
+        row1.appendChild(label1);
+        var input1 = document.createElement('input');
+        input1.type = 'number';
+        input1.min = '1';
+        input1.max = '60';
+        input1.value = CONFIG.MAX_RECORD_SECONDS;
+        input1.style.cssText = 'width:52px;background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
+        input1.addEventListener('change', function () {
+            var v = parseInt(input1.value, 10);
+            if (isNaN(v) || v < 1) v = 1;
+            if (v > 60) v = 60;
+            input1.value = v;
+            CONFIG.MAX_RECORD_SECONDS = v;
+            saveConfig();
+        });
+        row1.appendChild(input1);
+        configDiv.appendChild(row1);
+
+        var row2 = document.createElement('div');
+        row2.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label2 = document.createElement('span');
+        label2.textContent = 'Auto-reload:';
+        row2.appendChild(label2);
+        var check2 = document.createElement('input');
+        check2.type = 'checkbox';
+        check2.checked = CONFIG.AUTO_RELOAD_ON_FAILURE;
+        check2.addEventListener('change', function () {
+            CONFIG.AUTO_RELOAD_ON_FAILURE = check2.checked;
+            saveConfig();
+        });
+        row2.appendChild(check2);
+        configDiv.appendChild(row2);
+
+        panel.appendChild(configDiv);
+
+        gear.addEventListener('click', function () {
+            configDiv.style.display = configDiv.style.display === 'none' ? 'flex' : 'none';
+        });
+
         document.body.appendChild(panel);
         button_dw = true;
         log('panel added');
@@ -337,6 +420,7 @@
             var already;
             try { already = sessionStorage.getItem('ripper_reloaded'); } catch (e) { already = '1'; }
             if (already) return;
+            if (!CONFIG.AUTO_RELOAD_ON_FAILURE) return;
             try { sessionStorage.setItem('ripper_reloaded', '1'); } catch (e) {}
             log('no anchors after 12s, auto-reloading once');
             location.reload();
