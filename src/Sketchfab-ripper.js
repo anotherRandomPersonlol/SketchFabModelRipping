@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Sketchfab Ripper V16
-// @version      16.0.0
-// @description  download Sketchfab models as GLB with skeleton and recorded animation
+// @name         Sketchfab Ripper V17
+// @version      17.0.0
+// @description  download Sketchfab models as GLB with skeleton, recorded animation, and PBR textures
 // @author       Risk + community
 // @include      /^https?://(www\.)?sketchfab\.com/.*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js
@@ -201,7 +201,7 @@
         return deriveTextureName(url);
     }
 
-        function normalizeUrl(u) {
+    function normalizeUrl(u) {
         if (!u) return '';
         return String(u).split('?')[0].split('#')[0].replace(/\/+$/, '');
     }
@@ -254,14 +254,6 @@
                 (e.width === 64  && e.height === 64)) return e;
             if (imagemodel && e.options && imagemodel.attributes && imagemodel.attributes.images) {
                 var alpha = e.options.format;
-                window.__ripperLastImageModel = imagemodel;
-                // --- diagnostic: capture both name sources ---
-                window.__ripperTexInfo = window.__ripperTexInfo || [];
-                var _imgModelName = (imagemodel && imagemodel.attributes &&
-                                     imagemodel.attributes.name) || null;
-                var _eUrl = e.url;
-                // ----------------------------------------------
-                var filename_image = null; // derived from URL below
                 var url_image = e.url, max_size = 0, obr = e;
                 imagemodel.attributes.images.forEach(function (img) {
                     var ok = alpha === 'A' ? img.options.format === alpha : true;
@@ -276,12 +268,6 @@
                     while (_usedTextureNames[texName]) texName = base + '_' + (n++);
                     _usedTextureNames[texName] = true;
                     saveimagecache2[url_image] = { name: texName };
-                    window.__ripperTexInfo.push({
-                        url_image: url_image,
-                        e_url: _eUrl,
-                        imagemodel_name: _imgModelName,
-                        chosen: texName
-                    });
                 }
                 return obr;
             }
@@ -556,10 +542,28 @@
         var weights = attr.Weights0 || attr.WEIGHTS_0 || attr.weights0 || attr.Weights || attr.WEIGHTS || attr.BoneWeights || attr.BONEWEIGHTS;
         if (joints)  joints  = joints._elements;
         if (weights) weights = weights._elements;
+        // Sketchfab assigns arbitrary TexCoordN indices per mesh
+        // (e.g. TexCoord0, TexCoord3, TexCoord6 on the same model),
+        // so scan for any TexCoordN key rather than hard-coding.
+        var uvAttr = null;
+        var _uvBestNum = Infinity;
+        for (var _k in attr) {
+            if (!attr.hasOwnProperty(_k)) continue;
+            var _m = /^TexCoord(\d+)$/.exec(_k);
+            if (!_m) continue;
+            var _a = attr[_k];
+            if (!_a || !_a._elements || !_a._elements.length) continue;
+            var _n = parseInt(_m[1], 10);
+            if (_n < _uvBestNum) {
+                _uvBestNum = _n;
+                uvAttr = _a;
+            }
+        }
+
         return {
             vertex: attr.Vertex ? attr.Vertex._elements : [],
             normal: attr.Normal ? attr.Normal._elements : [],
-            uv: attr.TexCoord0 ? attr.TexCoord0._elements : [],
+            uv: uvAttr ? uvAttr._elements : [],
             joints: joints,
             weights: weights,
             primitives: list
@@ -633,8 +637,16 @@
                                 componentType: 5126, count: vc, type: 'VEC3' });
                 }
                 if (mdl.uv.length) {
+                    // glTF uses top-left UV origin; Sketchfab's osgjs uses
+                    // bottom-left. Flip V (index 1 of each pair) so the
+                    // texture lands right-side up. Keep this export-local:
+                    // if we later add an FBX path, FBX may not want it.
+                    var uvArr = new Float32Array(mdl.uv);
+                    for (var uvi = 1; uvi < uvArr.length; uvi += 2) {
+                        uvArr[uvi] = 1 - uvArr[uvi];
+                    }
                     aU = accs.length;
-                    accs.push({ bufferView: addBV(new Float32Array(mdl.uv), 34962),
+                    accs.push({ bufferView: addBV(uvArr, 34962),
                                 componentType: 5126, count: vc, type: 'VEC2' });
                     matHasUV[nm] = true;
                 }
@@ -981,32 +993,7 @@
                 'skins=' + gltfSkins.length,
                 'animFrames=' + (animations ? times.length : 0));
 
-                        // === DEBUG: material wiring summary ===
-            log('=== material wiring ===');
-            mats.forEach(function (m, mi) {
-                var bct = m.pbrMetallicRoughness && m.pbrMetallicRoughness.baseColorTexture;
-                var nt  = m.normalTexture;
-                var ot  = m.occlusionTexture;
-                var et  = m.emissiveTexture;
-                var mci = matsChannelInfo[mi] || {};
-                log('  mat[' + mi + '] ' + m.name
-                    + ' | uv=' + (!!matHasUV[m.name])
-                    + ' | chan=' + Object.keys(mci).join(',')
-                    + ' | base=' + (bct ? bct.index : '-')
-                    + ' | nrm='  + (nt  ? nt.index  : '-')
-                    + ' | ao='   + (ot  ? ot.index  : '-')
-                    + ' | em='   + (et  ? et.index  : '-'));
-            });
-            log('=== texture pool ===');
-            log('  images:', images.length, ' textures:', textures.length);
-            log('  url keys:', Object.keys(textureUrlToIndex).length);
-            log('  name keys:', Object.keys(textureNameToIndex).length);
-            for (var kk in textureNameToIndex) {
-                if (textureNameToIndex.hasOwnProperty(kk)) {
-                    log('    name->idx: "' + kk + '" → ' + textureNameToIndex[kk]);
-                }
-            }
-            // === END DEBUG ===
+            // (material wiring debug removed in v17)
 
             var jsonStr = JSON.stringify(gltf);
             var jsonBytes = new TextEncoder().encode(jsonStr);
@@ -1164,147 +1151,4 @@
             setTimeout(addbtnfunc, 500);
         }
     })();
-
-    // ====================================================================
-    // Debug: dump uniform lists so we can wire materials → textures
-    // ====================================================================
-    window.dumpRipperUniforms = function () {
-        if (!window.allmodel.length) { log('no meshes'); return; }
-        var obj = window.allmodel[0];
-        var ss = obj.stateset;
-        var ta = ss._textureAttributeArrayList;
-        if (!ta || !ta[0]) { log('no ta'); return; }
-        var tex = ta[0][0]._object;
-
-        log('=== texture full dump, mesh[0] slot[0] ===');
-
-        var keys = ['_name','_image','_imageModel','_url','url','_src','src',
-                    '_isColorAtlas','_channels','_packedTextures','_attributeTypeIndex',
-                    '_texture','_textureObject','_textureNull','_textureTarget',
-                    '_internalFormat','_type','_flipY','_colorSpaceConversion',
-                    '_textureWidth','_textureHeight','_dirty'];
-        for (var i = 0; i < keys.length; i++) {
-            var k = keys[i];
-            var v;
-            try { v = tex[k]; } catch (e) {
-                log('  ' + k + ': [threw] ' + e.message);
-                continue;
-            }
-            var vT = v == null ? String(v)
-                  : ((v.constructor && v.constructor.name) || typeof v);
-            var extra = '';
-            if (v && typeof v === 'object') {
-                if (v._url)  extra = ' | _url=' + v._url;
-                else if (v.url) extra = ' | url=' + v.url;
-                else if (v._name) extra = ' | _name=' + v._name;
-                else if (v.name) extra = ' | name=' + v.name;
-            } else if (typeof v === 'string') {
-                extra = ' = ' + (v.length > 120 ? v.substring(0,120) + '...' : v);
-            } else if (typeof v !== 'object') {
-                extra = ' = ' + String(v);
-            }
-            log('  ' + k + ': [' + vT + ']' + extra);
-        }
-
-        log('=== _packedTextures deep ===');
-        var pt = tex._packedTextures;
-        if (pt) {
-            log('  ctor:', pt.constructor && pt.constructor.name);
-            log('  isArray:', Array.isArray(pt));
-            log('  length:', pt.length);
-            var pk = Object.getOwnPropertyNames(pt);
-            log('  props:', pk.join(','));
-            for (var j = 0; j < pt.length; j++) {
-                var p = pt[j];
-                log('    --- packed['+j+'] ---');
-                if (!p) { log('      null'); continue; }
-                log('      ctor:', p.constructor && p.constructor.name);
-                var pkk = Object.getOwnPropertyNames(p);
-                log('      props:', pkk.join(','));
-                var pchecks = ['_image','_imageModel','_url','url',
-                               '_name','name','_texture','_sourceImage'];
-                for (var c = 0; c < pchecks.length; c++) {
-                    var ck = pchecks[c];
-                    var cv;
-                    try { cv = p[ck]; } catch (e) { continue; }
-                    if (cv === undefined) continue;
-                    var cvT = cv == null ? 'null'
-                            : ((cv.constructor && cv.constructor.name) || typeof cv);
-                    log('      ' + ck + ': [' + cvT + ']',
-                        typeof cv === 'string' ? cv : cv);
-                    if (cv && typeof cv === 'object') {
-                        var ckk = Object.getOwnPropertyNames(cv);
-                        log('        keys:', ckk.join(','));
-                        if (cv._url)  log('        _url:', cv._url);
-                        if (cv.url)   log('        url:', cv.url);
-                        if (cv._name) log('        _name:', cv._name);
-                        if (cv.name)  log('        name:', cv.name);
-                        if (cv.attributes) {
-                            log('        attrs.name:',
-                                cv.attributes.name);
-                            log('        attrs.url:',
-                                cv.attributes.url);
-                        }
-                    }
-                }
-            }
-        } else {
-            log('  (null/undefined)');
-        }
-
-        log('=== recursive URL hunt from tex (depth 8) ===');
-        var hits = [];
-        function hunt(o, prefix, depth) {
-            if (!o || typeof o !== 'object' || depth > 8) return;
-            if (hits.length > 60) return;
-            var ks;
-            try { ks = Object.getOwnPropertyNames(o); } catch (e) { return; }
-            for (var ii = 0; ii < ks.length; ii++) {
-                var k2 = ks[ii];
-                if (k2 === '_gl' || k2 === '_texture' || k2 === '_textureObject') continue;
-                var v2;
-                try { v2 = o[k2]; } catch (e) { continue; }
-                if (typeof v2 === 'string') {
-                    if (/^https?:\/\//.test(v2) || /\.(jpe?g|png|webp)/i.test(v2)) {
-                        hits.push(prefix + '.' + k2 + ' = ' + v2.substring(0, 130));
-                    }
-                } else if (v2 && typeof v2 === 'object') {
-                    hunt(v2, prefix + '.' + k2, depth + 1);
-                }
-            }
-        }
-        hunt(tex, 'tex', 0);
-        for (var h = 0; h < hits.length; h++) log('  ' + hits[h]);
-        log('  total URL hits:', hits.length);
-
-        log('=== mesh[0] all slots summary ===');
-        for (var s = 0; s < ta.length; s++) {
-            var t = ta[s][0]._object;
-            log('  slot['+s+'] _name='+t._name
-                +' _attrIdx='+t._attributeTypeIndex
-                +' _channels='+t._channels
-                +' _isColorAtlas='+t._isColorAtlas
-                +' _packedTextures.len='+(t._packedTextures && t._packedTextures.length));
-        }
-
-        log('=== also dump imageModel from drawhookcanvas path ===');
-        if (window.__ripperLastImageModel) {
-            var im = window.__ripperLastImageModel;
-            log('  attrs.name:', im.attributes && im.attributes.name);
-            log('  attrs keys:',
-                im.attributes ? Object.keys(im.attributes).join(',') : '(none)');
-            if (im.attributes && im.attributes.images) {
-                log('  images.length:', im.attributes.images.length);
-                for (var ii2 = 0; ii2 < im.attributes.images.length; ii2++) {
-                    var img = im.attributes.images[ii2];
-                    log('    images['+ii2+'].url:', img.url);
-                    log('    images['+ii2+'].size:', img.size);
-                }
-            }
-        } else {
-            log('  (no __ripperLastImageModel captured yet)');
-        }
-
-        log('--- end of dump v6 ---');
-    };
 })();
