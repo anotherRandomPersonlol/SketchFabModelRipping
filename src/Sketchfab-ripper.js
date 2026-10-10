@@ -1471,7 +1471,7 @@
                         var anyMotion = false;
                         for (var cj = 0; cj < tracks.length; cj++) {
                             var frC = tracks[cj].frames;
-                            var prev = null, movedHere = false;
+                            var prev = null, movedHere = false;   // prev = the clip's FIRST frame
                             for (var fj = 0; fj < frC.length && !movedHere; fj++) {
                                 var fmeshJ = frC[fj].meshes[mIdx];
                                 var palJ = fmeshJ && fmeshJ.palette;
@@ -1482,7 +1482,7 @@
                                         if (Math.abs(mJ[vv] - prev[vv]) > 1e-5) { movedHere = true; break; }
                                     }
                                 }
-                                prev = mJ;
+                                if (prev === null) prev = mJ;   // slow drift is caught: always compare to frame 0
                             }
                             clipHasMotion[cj] = movedHere;
                             if (movedHere) anyMotion = true;
