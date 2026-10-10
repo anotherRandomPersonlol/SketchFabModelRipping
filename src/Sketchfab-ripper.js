@@ -379,6 +379,12 @@
         if (window.animationRecording || window.clipRecording) return;
         window.animationRecording = true;
         window.recordedFrames = [];
+        // A fresh single-clip recording must win at export time. Stale multi-clip
+        // data from an earlier RECORD ALL CLIPS run would otherwise override it.
+        if (window.clips && window.clips.length) {
+            log('single-clip record: discarded ' + window.clips.length + ' stored multi-clip recording(s)');
+        }
+        window.clips = [];
         window.recordingStartTime = performance.now() / 1000;
         setRecLabel('STOP');
         log('recording started (max ' + CONFIG.MAX_RECORD_SECONDS + 's)');
