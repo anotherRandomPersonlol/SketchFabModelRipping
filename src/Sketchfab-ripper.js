@@ -40,7 +40,8 @@
         CLIP_SETTLE_FRAMES: 2,      // rAF ticks to wait after seeking to a clip's start
         DEDUPE_STRICT_WORLD: false, // true: keep same-name meshes at different positions
         REST_POSE_SOURCE: 'clip0',  // joint rest pose: 'clip0' (first frame of first clip) or 'static' (viewer's Static Pose)
-        TEXTURE_WAIT_SECONDS: 12    // max wait at export for textures the viewer is still loading (0 = never wait)
+        TEXTURE_WAIT_SECONDS: 12,   // max wait at export for textures the viewer is still loading (0 = never wait)
+        DOUBLE_SIDED: false         // true: mark every material doubleSided (the viewer's "Single Sided" can be off)
     };
     var CONFIG_KEY = 'ripper_config_v1';
 
@@ -903,6 +904,22 @@
         row2.appendChild(check2);
         configDiv.appendChild(row2);
 
+        var row5 = document.createElement('div');
+        row5.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label5 = document.createElement('span');
+        label5.textContent = 'Double sided:';
+        row5.appendChild(label5);
+        var check5 = document.createElement('input');
+        check5.type = 'checkbox';
+        check5.checked = !!CONFIG.DOUBLE_SIDED;
+        check5.addEventListener('change', function () {
+            CONFIG.DOUBLE_SIDED = check5.checked;
+            saveConfig();
+            log('double sided set to ' + check5.checked);
+        });
+        row5.appendChild(check5);
+        configDiv.appendChild(row5);
+
         var row3 = document.createElement('div');
         row3.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label3 = document.createElement('span');
@@ -1580,6 +1597,13 @@
                         m.pbrMetallicRoughness.baseColorTexture = { index: 0 };
                     }
                 });
+            }
+
+            // Sketchfab can render a model two-sided (Inspector: Single Sided OFF), which glTF
+            // expresses per material. We cannot read that setting yet, so it is a manual option.
+            if (CONFIG.DOUBLE_SIDED) {
+                mats.forEach(function (m) { m.doubleSided = true; });
+                log('materials marked doubleSided: ' + mats.length);
             }
 
             // ---- animation clips (multi-clip aware) ----
