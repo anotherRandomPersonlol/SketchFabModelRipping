@@ -23,6 +23,7 @@
     window.clipDefs            = [];     // [{ index, uid, name, duration }]
     window.clipRecording       = false;
     window.clipCancel          = false;  // set by the CANCEL button during RECORD ALL CLIPS
+    window.autoRecordActive    = false;  // single-clip RECORD is running in auto (one full loop) mode
     window.staticPoseSnapshot  = null;   // snapshotFrame() taken with the viewer's "Static Pose" item selected
     window.clipStaticIdx       = -1;     // list item index of "Static Pose" (the item that activates no clip)
     window.clipProgress        = '';
@@ -436,8 +437,49 @@
         return { meshes: meshesOut };
     }
 
+    // Single-clip RECORD with exactly one active clip: restart that clip and record
+    // exactly one loop (0..duration) automatically. Returns false when that is not
+    // possible, so the caller falls back to the manual timed recording.
+    function startAutoSingleRecording() {
+        var mgr = findAnimationManager();
+        if (!mgr) return false;
+        var act = activeClipUids(mgr);
+        if (act.length !== 1) return false;
+        var inst = mgr._instanceAnimations[act[0]];
+        if (!inst || !(inst.duration > 0)) return false;
+        var def = { uid: act[0], name: inst.name || act[0], duration: inst.duration };
+        window.animationRecording = true;
+        window.autoRecordActive = true;
+        window.clipCancel = false;
+        window.recordedFrames = [];
+        if (window.clips && window.clips.length) {
+            log('single-clip record: discarded ' + window.clips.length + ' stored multi-clip recording(s)');
+        }
+        window.clips = [];
+        setRecLabel('STOP');
+        var base = inst.start || 0;
+        log('auto record: one full loop of the active clip (' + def.duration.toFixed(2) + 's)');
+        mgr.setSeekTime(base);
+        waitFrames(CONFIG.CLIP_SETTLE_FRAMES, function () {
+            recordClipRealtime(mgr, def, base, function (frames) {
+                window.animationRecording = false;
+                window.autoRecordActive = false;
+                window.clipCancel = false;
+                setRecLabel('RECORD');
+                if (frames && frames.length > 1) {
+                    window.recordedFrames = frames;
+                    log('recording stopped, frames:', frames.length);
+                } else {
+                    warn('auto record produced no frames');
+                }
+            });
+        });
+        return true;
+    }
+
     function startRecording() {
         if (window.animationRecording || window.clipRecording) return;
+        if (startAutoSingleRecording()) return;
         window.animationRecording = true;
         window.recordedFrames = [];
         // A fresh single-clip recording must win at export time. Stale multi-clip
@@ -462,6 +504,7 @@
 
     function stopRecording() {
         if (!window.animationRecording) return;
+        if (window.autoRecordActive) { window.clipCancel = true; return; }
         window.animationRecording = false;
         cancelAnimationFrame(window.recordingRafId);
         setRecLabel('RECORD');
@@ -876,6 +919,20 @@
             recordAllClips();
         });
         panel.appendChild(btnAll);
+
+        // RECORD ALL CLIPS only makes sense with 2+ clips: grey it out otherwise.
+        function refreshAllBtn() {
+            if (window.clipRecording) return;
+            var n = 0;
+            try { n = getClipCount(); } catch (e) {}
+            var off = n < 2;
+            btnAll.disabled = off;
+            btnAll.style.opacity = off ? '0.4' : '1';
+            btnAll.style.cursor = off ? 'not-allowed' : 'pointer';
+            btnAll.title = off ? (n === 1 ? 'Only one clip: use RECORD (records one full loop automatically)' : 'No animation clips found yet') : '';
+        }
+        refreshAllBtn();
+        setInterval(refreshAllBtn, 2000);
 
         var status = document.createElement('div');
         status.id = 'ripper-status';

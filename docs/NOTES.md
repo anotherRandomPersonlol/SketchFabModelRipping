@@ -195,3 +195,6 @@ action, never inside per-frame or per-vertex loops. ES5 only: `var`,
 function declarations, no arrows, template literals or destructuring.
 Sections are separated with `// ====`.
 
+
+## Auto single-clip record
+RECORD with exactly one active clip restarts it and records one full loop (0..duration) automatically, reusing `recordClipRealtime`; STOP keeps the partial frames. With no manager or no active clip it falls back to the manual timer (`MAX_RECORD_SECONDS`). RECORD ALL CLIPS is greyed out when the manager has fewer than 2 clips (polled every 2 s). Verified on the vertex-colour light ball: morph targets, node translation and morph weight animation all export correctly (validator clean).
