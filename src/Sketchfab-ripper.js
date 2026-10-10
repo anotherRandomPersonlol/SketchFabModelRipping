@@ -571,10 +571,130 @@
     }
 
     // ====================================================================
+    // MetallicRoughness merge
+    // ====================================================================
+    // glTF wants metalness in B, roughness in G of one texture. Sketchfab
+    // ships them as separate grayscale images (MetalnessPBR, RoughnessPBR,
+    // or GlossinessPBR). Merge per mesh into one <mesh>_MR.png.
+    function _blobForSanitizedName(sanitized) {
+        for (var key in saveimagecache2) {
+            if (!saveimagecache2.hasOwnProperty(key)) continue;
+            var t = saveimagecache2[key];
+            if (!t || !t.dataURL) continue;
+            if (sanitizeTextureName(t.name) === sanitized) {
+                var ext = t.fileExt || '.png';
+                var fname = t.name + ext;
+                if (objects[fname]) return objects[fname];
+            }
+        }
+        return null;
+    }
+
+    function _mergeOneMR(cm) {
+        var metalSan = cm.MetalnessPBR && cm.MetalnessPBR.name
+                     ? sanitizeTextureName(cm.MetalnessPBR.name) : null;
+        var roughSan = cm.RoughnessPBR && cm.RoughnessPBR.name
+                     ? sanitizeTextureName(cm.RoughnessPBR.name) : null;
+        var glossSan = cm.GlossinessPBR && cm.GlossinessPBR.name
+                     ? sanitizeTextureName(cm.GlossinessPBR.name) : null;
+
+        var metalBlob = metalSan ? _blobForSanitizedName(metalSan) : null;
+        var roughBlob = roughSan ? _blobForSanitizedName(roughSan) : null;
+        var glossBlob = glossSan ? _blobForSanitizedName(glossSan) : null;
+
+        if (!metalBlob && !roughBlob && !glossBlob) return Promise.resolve(null);
+
+        var pending = [];
+        if (metalBlob) pending.push(createImageBitmap(metalBlob));
+        if (roughBlob) pending.push(createImageBitmap(roughBlob));
+        if (glossBlob) pending.push(createImageBitmap(glossBlob));
+
+        return Promise.all(pending).then(function (bmps) {
+            var i = 0;
+            var mBmp = metalBlob ? bmps[i++] : null;
+            var rBmp = roughBlob ? bmps[i++] : null;
+            var gBmp = glossBlob ? bmps[i++] : null;
+            var ref = mBmp || rBmp || gBmp;
+            var W = ref.width, H = ref.height;
+
+            function readGray(bmp) {
+                var c = document.createElement('canvas');
+                c.width = W; c.height = H;
+                var x = c.getContext('2d');
+                x.drawImage(bmp, 0, 0, W, H);
+                return x.getImageData(0, 0, W, H).data;
+            }
+            var mData = mBmp ? readGray(mBmp) : null;
+            var rData = rBmp ? readGray(rBmp) : null;
+            var gData = gBmp ? readGray(gBmp) : null;
+
+            var out = new Uint8ClampedArray(W * H * 4);
+            for (var p = 0; p < W * H; p++) {
+                var metal = mData ? mData[p * 4] : 0;
+                var rough;
+                if (rData) rough = rData[p * 4];
+                else if (gData) rough = 255 - gData[p * 4];
+                else rough = 255;
+                out[p * 4 + 0] = 255;
+                out[p * 4 + 1] = rough;
+                out[p * 4 + 2] = metal;
+                out[p * 4 + 3] = 255;
+            }
+
+            var oc = document.createElement('canvas');
+            oc.width = W; oc.height = H;
+            oc.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
+            return new Promise(function (res) {
+                oc.toBlob(function (b) { res(b); }, 'image/jpeg', 0.92);
+            });
+        });
+    }
+
+    function mergeMRTextures() {
+        var jobs = [];
+        var seen = {};
+        window.allmodel.forEach(function (obj, i) {
+            var ss = obj.stateset;
+            var meshName = obj._name
+                         || (ss && ss._name)
+                         || ('mesh_' + i);
+            var cm = getChannelTextureMap(obj);
+            if (!cm.MetalnessPBR && !cm.RoughnessPBR && !cm.GlossinessPBR) return;
+            var san = sanitizeTextureName(meshName);
+            if (seen[san]) return;
+            seen[san] = true;
+            jobs.push(
+                _mergeOneMR(cm).then(function (blob) {
+                    if (!blob) return;
+                    var fname = san + '_MR.jpg';
+                    objects[fname] = blob;
+                    saveimagecache2['__merged_mr__:' + san] = {
+                        name: san + '_MR',
+                        fileExt: '.jpg',
+                        dataURL: 'merged'
+                    };
+                    log('merged MR:', meshName, '→', fname, blob.size + 'B');
+                }).catch(function (e) {
+                    warn('MR merge failed for', meshName, e.message);
+                })
+            );
+        });
+        return jobs.length ? Promise.all(jobs) : Promise.resolve();
+    }
+
+    // ====================================================================
     // GLB Export
     // ====================================================================
     function downloadGLB() {
         log('export started');
+        mergeMRTextures().then(function () {
+            _downloadGLBSync();
+        }).catch(function (e) {
+            err('export failed:', e.message, e.stack);
+        });
+    }
+
+    function _downloadGLBSync() {
         try {
             function pad(o) { return o % 4 ? o + (4 - o % 4) : o; }
 
@@ -755,10 +875,19 @@
                         assigned = true;
                     }
 
-                    var em = chan.EmissivePBR || chan.EmissionPBR;
+                    var em = chan.EmissivePBR || chan.EmissionPBR || chan.EmitColor;
                     var ei = findTexIdx(em);
                     if (ei !== undefined) {
                         m.emissiveTexture = { index: ei };
+                        assigned = true;
+                    }
+
+                    // Merged MR (see mergeMRTextures): registered in the
+                    // pool under name "<sanitized mesh name>_MR".
+                    var mrName = sanitizeTextureName(m.name) + '_MR';
+                    var mrIdx = textureNameToIndex[mrName];
+                    if (mrIdx !== undefined) {
+                        m.pbrMetallicRoughness.metallicRoughnessTexture = { index: mrIdx };
                         assigned = true;
                     }
 
@@ -1151,4 +1280,115 @@
             setTimeout(addbtnfunc, 500);
         }
     })();
+    // ====================================================================
+    // Debug: verify MR sources are available for merging
+    // ====================================================================
+    window.probeMR = function () {
+        if (!window.allmodel.length) { log('no meshes'); return; }
+
+        // --- 1. What channels does each mesh expose? ---
+        window.allmodel.forEach(function (o, i) {
+            var nm = (o.stateset && o.stateset._name) || o._name || ('mesh_' + i);
+            var cm = getChannelTextureMap(o);
+            var keys = Object.keys(cm);
+            var mrKeys = [];
+            ['MetalnessPBR','RoughnessPBR','GlossinessPBR','EmitColor','EmissivePBR','Opacity']
+                .forEach(function (ch) { if (cm[ch]) mrKeys.push(ch); });
+            log('mesh[' + i + '] ' + nm + ' | all=' + keys.join(',')
+                + ' | MR/other=' + (mrKeys.join(',') || '(none)'));
+            for (var k = 0; k < mrKeys.length; k++) {
+                var ch = mrKeys[k];
+                log('    ' + ch + ' name=' + cm[ch].name
+                    + ' url=...' + (cm[ch].url || '').slice(-40));
+            }
+        });
+
+        // --- 2. Are the source blobs actually in `objects`? ---
+        function lookupBlob(sanitizedTarget) {
+            for (var key in saveimagecache2) {
+                if (!saveimagecache2.hasOwnProperty(key)) continue;
+                var t = saveimagecache2[key];
+                if (!t || !t.dataURL) continue;
+                if (sanitizeTextureName(t.name) === sanitizedTarget) {
+                    var ext = t.fileExt || '.png';
+                    var fname = t.name + ext;
+                    return {
+                        found: !!objects[fname],
+                        fname: fname,
+                        size: objects[fname] ? objects[fname].size : 0,
+                        type: objects[fname] ? objects[fname].type : '?'
+                    };
+                }
+            }
+            return null;
+        }
+
+        log('=== blob presence check ===');
+        window.allmodel.forEach(function (o, i) {
+            var cm = getChannelTextureMap(o);
+            ['MetalnessPBR','RoughnessPBR','GlossinessPBR'].forEach(function (ch) {
+                if (!cm[ch] || !cm[ch].name) return;
+                var san = sanitizeTextureName(cm[ch].name);
+                var r = lookupBlob(san);
+                log('mesh[' + i + '] ' + ch + ' "' + san + '" → '
+                    + (r ? (r.found ? ('OK ' + r.fname + ' ' + r.size + 'B ' + r.type)
+                                    : 'MISSING ' + r.fname)
+                         : 'no cache entry'));
+            });
+        });
+
+        // --- 3. Draw one source texture to canvas and sample a few pixels ---
+        //      (verifies we can read pixel data before writing the merge)
+        log('=== canvas readback test (first MetalnessPBR found) ===');
+        var testName = null;
+        window.allmodel.some(function (o) {
+            var cm = getChannelTextureMap(o);
+            if (cm.MetalnessPBR && cm.MetalnessPBR.name) {
+                testName = sanitizeTextureName(cm.MetalnessPBR.name);
+                return true;
+            }
+            return false;
+        });
+        if (!testName) {
+            log('  (no MetalnessPBR found — canvas test skipped)');
+            return;
+        }
+        var blobInfo = lookupBlob(testName);
+        if (!blobInfo || !blobInfo.found) {
+            log('  (MetalnessPBR blob missing — canvas test skipped)');
+            return;
+        }
+        var targetBlob = null;
+        for (var kk in saveimagecache2) {
+            if (!saveimagecache2.hasOwnProperty(kk)) continue;
+            var t2 = saveimagecache2[kk];
+            if (t2 && t2.dataURL &&
+                sanitizeTextureName(t2.name) === testName) {
+                targetBlob = objects[t2.name + (t2.fileExt || '.png')];
+                break;
+            }
+        }
+        if (!targetBlob) { log('  (blob lookup failed)'); return; }
+
+        createImageBitmap(targetBlob).then(function (bmp) {
+            log('  bitmap size:', bmp.width + 'x' + bmp.height);
+            var c = document.createElement('canvas');
+            c.width = bmp.width; c.height = bmp.height;
+            var ctx2 = c.getContext('2d');
+            ctx2.drawImage(bmp, 0, 0);
+            var id = ctx2.getImageData(0, 0, Math.min(4, bmp.width), Math.min(4, bmp.height));
+            // Sample the top-left 2 pixels to see if it's a grayscale
+            for (var p = 0; p < Math.min(4, id.data.length / 4); p++) {
+                var r0 = id.data[p*4+0], g0 = id.data[p*4+1],
+                    b0 = id.data[p*4+2], a0 = id.data[p*4+3];
+                log('    px[' + p + '] R=' + r0 + ' G=' + g0
+                    + ' B=' + b0 + ' A=' + a0
+                    + (r0 === g0 && g0 === b0 ? ' [grayscale OK]' : ' [COLORED — unexpected]'));
+            }
+            log('--- end probeMR ---');
+        }).catch(function (e) {
+            log('  createImageBitmap failed:', e.message);
+            log('--- end probeMR ---');
+        });
+    };
 })();
