@@ -33,7 +33,7 @@
     var button_dw       = false;
 
     var CONFIG = {
-        MAX_RECORD_SECONDS: 5,
+        MAX_RECORD_SECONDS: 12,
         AUTO_RELOAD_ON_FAILURE: true,
         MR_TEXTURE_FORMAT: 'jpeg',  // 'jpeg' (small) or 'png' (lossless)
         CLIP_FPS: 30,               // sample rate for multi-clip recording
@@ -397,10 +397,31 @@
     // ====================================================================
     // Recorder
     // ====================================================================
+    // Morph targets: the viewer keeps target k's absolute vertex data in attribute
+    // Vertex_k (Normal_k) and the live blend weights in obj._targetWeights.
+    function morphTargetCount(obj) {
+        var attr = obj && obj._attributes, n = 0;
+        if (!attr) return 0;
+        for (var k in attr) {
+            if (!attr.hasOwnProperty(k)) continue;
+            var m = /^Vertex_(\d+)$/.exec(k);
+            if (m) n = Math.max(n, parseInt(m[1], 10) + 1);
+        }
+        return n;
+    }
+
     function snapshotFrame() {
         var meshesOut = [];
         window.allmodel.forEach(function (obj) {
             var world = computeWorldMatrix(obj);
+            var wts = null;
+            try {
+                var nT = morphTargetCount(obj);
+                if (nT && obj._targetWeights) {
+                    wts = new Float32Array(nT);
+                    for (var wi = 0; wi < nT; wi++) wts[wi] = obj._targetWeights[wi] || 0;
+                }
+            } catch (e) {}
             var pal = null;
             try {
                 var impl = obj._rigTransformImplementation;
@@ -410,7 +431,7 @@
                     for (var i = 0; i < src.length; i++) pal[i] = src[i];
                 }
             } catch (e) {}
-            meshesOut.push({ world: world, palette: pal });
+            meshesOut.push({ world: world, palette: pal, weights: wts });
         });
         return { meshes: meshesOut };
     }
@@ -1378,6 +1399,7 @@
             var binChunks = [], off = 0;   // Uint8Array chunks, joined once at the end
             var matHasUV = {};
             var meshHasSkinning = {};
+            var morphInfo = {};   // mIdx -> { meshIdx, n } for meshes with morph targets
 
             function addBV(ta, target) {
                 var len = ta.byteLength;
@@ -1487,6 +1509,41 @@
                     log('skinned mesh:', nm, 'jointsMax=' + mj);
                 }
 
+                // Morph targets. The viewer blends  (1 - sum w) * base + sum w_k * target_k  with
+                // absolute targets, which equals glTF's  base + sum w_k * (target_k - base).
+                var morphTargets = [], mAttr = obj._attributes || {};
+                function morphEls(a) {
+                    var b = a && (a._initialBufferArray || a._bufferArray);
+                    return (b && b._elements) || (a && a._elements) || null;
+                }
+                for (var mk = 0, mN = morphTargetCount(obj); mk < mN; mk++) {
+                    var tv = morphEls(mAttr['Vertex_' + mk]);
+                    if (!tv || tv.length !== mdl.vertex.length) {
+                        warn('morph target', mk, 'of', nm, 'skipped (vertex data missing or wrong size)');
+                        continue;
+                    }
+                    var dv = new Float32Array(tv.length), dMin = [Infinity, Infinity, Infinity], dMax = [-Infinity, -Infinity, -Infinity];
+                    for (var di = 0; di < tv.length; di++) {
+                        var dd = tv[di] - mdl.vertex[di];
+                        dv[di] = dd;
+                        var dax = di % 3;
+                        if (dd < dMin[dax]) dMin[dax] = dd;
+                        if (dd > dMax[dax]) dMax[dax] = dd;
+                    }
+                    var tgt = { POSITION: accs.length };
+                    accs.push({ bufferView: addBV(dv, 34962), componentType: 5126, count: vc,
+                                type: 'VEC3', min: dMin, max: dMax });
+                    var tn = morphEls(mAttr['Normal_' + mk]);
+                    if (tn && mdl.normal.length && tn.length === mdl.normal.length) {
+                        var dn = new Float32Array(tn.length);
+                        for (var dni = 0; dni < tn.length; dni++) dn[dni] = tn[dni] - mdl.normal[dni];
+                        tgt.NORMAL = accs.length;
+                        accs.push({ bufferView: addBV(dn, 34962), componentType: 5126, count: vc, type: 'VEC3' });
+                    }
+                    morphTargets.push(tgt);
+                }
+                if (morphTargets.length) log('morph targets:', nm, morphTargets.length);
+
                 var primMode = (mdl.primitives.length > 0 && mdl.primitives[0].mode) ? mdl.primitives[0].mode : 4;
                 var prim = { attributes: { POSITION: accPos }, mode: primMode };
                 if (aN >= 0) prim.attributes.NORMAL = aN;
@@ -1495,6 +1552,7 @@
                 if (aJ >= 0) prim.attributes.JOINTS_0 = aJ;
                 if (aW >= 0) prim.attributes.WEIGHTS_0 = aW;
                 if (aI >= 0) prim.indices = aI;
+                if (morphTargets.length) prim.targets = morphTargets;
 
                 var mi = -1;
                 for (var q = 0; q < mats.length; q++) if (mats[q].name === nm) { mi = q; break; }
@@ -1507,6 +1565,7 @@
                 prim.material = mi;
 
                 var mshIdx = meshes.length;
+                if (morphTargets.length) morphInfo[mIdx] = { meshIdx: meshes.length, n: morphTargets.length };
                 meshes.push({ name: nm, primitives: [prim] });
                 var ni = nodeMap.get(obj);
                 if (ni !== undefined) nodes[ni].mesh = mshIdx;
@@ -1858,6 +1917,114 @@
                     log('skin', skinIdx, 'static from live palette, joints:', jointCount);
                 }
             });
+
+            // ---- animation of UNSKINNED meshes: node motion and morph weights ----
+            // Skinned meshes animate through their palette (above). A mesh that has no
+            // skin can still move (its node chain is animated) and/or morph (weights).
+            function emitNodeTRS(tr, nIdx, matAt) {
+                var T = [], R = [], S = [], prevQ = null;
+                for (var fi4 = 0; fi4 < tr.frames.length; fi4++) {
+                    var d4 = decomposeMat4(matAt(fi4));
+                    if (prevQ) {
+                        var dot4 = d4.rotation[0]*prevQ[0] + d4.rotation[1]*prevQ[1]
+                                 + d4.rotation[2]*prevQ[2] + d4.rotation[3]*prevQ[3];
+                        if (dot4 < 0) {
+                            d4.rotation[0] = -d4.rotation[0]; d4.rotation[1] = -d4.rotation[1];
+                            d4.rotation[2] = -d4.rotation[2]; d4.rotation[3] = -d4.rotation[3];
+                        }
+                    }
+                    prevQ = d4.rotation.slice();
+                    T.push(d4.translation[0], d4.translation[1], d4.translation[2]);
+                    R.push(d4.rotation[0], d4.rotation[1], d4.rotation[2], d4.rotation[3]);
+                    S.push(d4.scale[0], d4.scale[1], d4.scale[2]);
+                }
+                var paths = [['translation', T, 'VEC3'], ['rotation', R, 'VEC4'], ['scale', S, 'VEC3']];
+                paths.forEach(function (pp) {
+                    var aX = accs.length;
+                    accs.push({ bufferView: addBV(new Float32Array(pp[1])), componentType: 5126,
+                                count: tr.times.length, type: pp[2] });
+                    tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aX });
+                    tr.channels.push({ sampler: tr.samplers.length - 1, target: { node: nIdx, path: pp[0] } });
+                });
+            }
+
+            if (hasFrames) {
+                allNodes.forEach(function (obj, mIdx) {
+                    var nodeIdx = nodeMap.get(obj);
+                    if (nodeIdx === undefined || nodes[nodeIdx].mesh === undefined) return;
+
+                    // node motion: the recorded world matrix changes within a clip
+                    if (!meshHasSkinning[mIdx]) {
+                        var moves = [], anyMove = false;
+                        tracks.forEach(function (trk, ti) {
+                            var f0 = trk.frames[0].meshes[mIdx], w0 = f0 && f0.world, moved = false;
+                            for (var fm2 = 1; w0 && fm2 < trk.frames.length && !moved; fm2++) {
+                                var fw = trk.frames[fm2].meshes[mIdx], wn = fw && fw.world;
+                                if (!wn) continue;
+                                for (var wv = 0; wv < 16; wv++) {
+                                    if (Math.abs(wn[wv] - w0[wv]) > 1e-5 * Math.max(1, Math.abs(w0[wv]))) { moved = true; break; }
+                                }
+                            }
+                            moves[ti] = moved;
+                            if (moved) anyMove = true;
+                        });
+                        if (anyMove) {
+                            var rest0 = tracks[0].frames[0].meshes[mIdx].world;
+                            var dRest = decomposeMat4(rest0);
+                            delete nodes[nodeIdx].matrix;
+                            nodes[nodeIdx].translation = dRest.translation;
+                            nodes[nodeIdx].rotation = dRest.rotation;
+                            nodes[nodeIdx].scale = dRest.scale;
+                            tracks.forEach(function (trk, ti) {
+                                if (!moves[ti]) return;
+                                emitNodeTRS(trk, nodeIdx, function (f) {
+                                    var fx = trk.frames[f].meshes[mIdx];
+                                    return (fx && fx.world) || rest0;
+                                });
+                            });
+                            log('node animation: ' + nodes[nodeIdx].name + ' moves in ' +
+                                moves.filter(function (x) { return x; }).length + ' clip(s)');
+                        }
+                    }
+
+                    // morph weights
+                    var mi2 = morphInfo[mIdx];
+                    if (mi2) {
+                        var wRest = tracks[0].frames[0].meshes[mIdx];
+                        var wr = (wRest && wRest.weights) || null;
+                        if (wr) {
+                            var restW = [];
+                            for (var rw = 0; rw < mi2.n; rw++) restW.push(wr[rw] || 0);
+                            meshes[mi2.meshIdx].weights = restW;
+                        }
+                        tracks.forEach(function (trk) {
+                            var base = trk.frames[0].meshes[mIdx], bw = base && base.weights, varies = false;
+                            if (!bw) return;
+                            for (var fw2 = 1; fw2 < trk.frames.length && !varies; fw2++) {
+                                var ww = trk.frames[fw2].meshes[mIdx];
+                                var wv2 = ww && ww.weights;
+                                if (!wv2) continue;
+                                for (var kk = 0; kk < mi2.n; kk++) {
+                                    if (Math.abs((wv2[kk] || 0) - (bw[kk] || 0)) > 1e-4) { varies = true; break; }
+                                }
+                            }
+                            if (!varies) return;
+                            var out = new Float32Array(trk.frames.length * mi2.n);
+                            for (var fw3 = 0; fw3 < trk.frames.length; fw3++) {
+                                var wm = trk.frames[fw3].meshes[mIdx], wa = (wm && wm.weights) || bw;
+                                for (var kw = 0; kw < mi2.n; kw++) out[fw3 * mi2.n + kw] = wa[kw] || 0;
+                            }
+                            var aWt = accs.length;
+                            accs.push({ bufferView: addBV(out), componentType: 5126,
+                                        count: out.length, type: 'SCALAR' });
+                            trk.samplers.push({ input: trk.timeAcc, interpolation: 'LINEAR', output: aWt });
+                            trk.channels.push({ sampler: trk.samplers.length - 1,
+                                                target: { node: nodeIdx, path: 'weights' } });
+                            log('morph animation: ' + nodes[nodeIdx].name + ' (' + mi2.n + ' target(s))');
+                        });
+                    }
+                });
+            }
 
             if (tracks.length) {
                 var animList = [];

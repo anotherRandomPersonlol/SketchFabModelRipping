@@ -158,7 +158,7 @@ once after 12 s). With zero meshes in the panel, patch_4 did not fire.
   as `COLOR_0` (normalized UNSIGNED_BYTE). Not yet verified in Blender.
   Whether the values are sRGB or linear is unchecked. Constant base
   color factors of texture-less materials are not read (always white).
-- Morph targets (`Vertex_0` / `Normal_0` attributes) are not exported.
+- Morph targets (Vertex_k/Normal_k deltas) and per-clip morph weights are exported, plus node TRS animation for unskinned meshes (e.g. "Sphere_1" translate). Implemented in 17.1.x; pending verification on the vertex-colour light-ball model.
 - Statesets: on some models (the Kalibr) the material and its textures sit
   on the parent node named after the material, not on the mesh.
 - No EmitColor channel
