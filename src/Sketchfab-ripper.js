@@ -1522,6 +1522,7 @@
                 ];
             }
 
+            var staticWarned = false;
             allNodes.forEach(function (obj, mIdx) {
                 if (!meshHasSkinning[mIdx]) return;
 
@@ -1685,8 +1686,10 @@
                     }
                     if (CONFIG.REST_POSE_SOURCE === 'static') {
                         if (staticOk) restPal = sm.palette;
-                        else warn('rest pose: Static Pose snapshot unavailable for mesh ' + mIdx +
-                                  ' (run RECORD ALL CLIPS first); using clip frame 0');
+                        else if (!staticWarned) {
+                            staticWarned = true;   // once per export, not once per mesh
+                            warn('rest pose: Static Pose snapshot unavailable (run RECORD ALL CLIPS first); using clip frame 0');
+                        }
                     }
                     log('rest pose source: ' + (restPal === paletteRef.palette ? 'clip frame 0' : 'Static Pose') +
                         ' (mesh ' + mIdx + ')');
