@@ -39,7 +39,8 @@
         CLIP_FPS: 30,               // sample rate for multi-clip recording
         CLIP_SETTLE_FRAMES: 2,      // rAF ticks to wait after seeking to a clip's start
         DEDUPE_STRICT_WORLD: false, // true: keep same-name meshes at different positions
-        REST_POSE_SOURCE: 'clip0'   // joint rest pose: 'clip0' (first frame of first clip) or 'static' (viewer's Static Pose)
+        REST_POSE_SOURCE: 'clip0',  // joint rest pose: 'clip0' (first frame of first clip) or 'static' (viewer's Static Pose)
+        TEXTURE_WAIT_SECONDS: 12    // max wait at export for textures the viewer is still loading (0 = never wait)
     };
     var CONFIG_KEY = 'ripper_config_v1';
 
@@ -1249,11 +1250,69 @@
     }
 
     // ====================================================================
+    // Texture readiness
+    // ====================================================================
+    // Textures are only captured when the viewer draws them, which happens in a
+    // burst while the model loads (and lags most). Exporting before that burst
+    // ends produces a GLB with missing images. Count what the meshes reference
+    // against what has been captured, and wait a little if some are missing.
+    function textureReadiness() {
+        var seen = {}, expected = 0, missing = 0;
+        window.allmodel.forEach(function (obj) {
+            var cm = getChannelTextureMap(obj);
+            for (var ch in cm) {
+                if (!cm.hasOwnProperty(ch) || !cm[ch] || !cm[ch].url) continue;
+                var id = _urlTail(cm[ch].url) || normalizeUrl(cm[ch].url);
+                if (seen[id]) continue;
+                seen[id] = true;
+                expected++;
+                if (!_blobForUrl(cm[ch].url)) missing++;
+            }
+        });
+        return { expected: expected, missing: missing };
+    }
+
+    function waitForTextures() {
+        var maxMs = (CONFIG.TEXTURE_WAIT_SECONDS || 0) * 1000;
+        var first = textureReadiness();
+        if (maxMs <= 0 || first.missing === 0) return Promise.resolve();
+        log('textures still loading: ' + (first.expected - first.missing) + '/' + first.expected +
+            ' captured, waiting up to ' + CONFIG.TEXTURE_WAIT_SECONDS + 's (keep this tab visible)');
+        return new Promise(function (resolve) {
+            var start = Date.now(), lastProgressAt = start, lastCaptured = first.expected - first.missing;
+            (function poll() {
+                setTimeout(function () {
+                    var r = textureReadiness(), captured = r.expected - r.missing, now = Date.now();
+                    if (captured > lastCaptured) {
+                        lastCaptured = captured;
+                        lastProgressAt = now;
+                        log('textures captured: ' + captured + '/' + r.expected);
+                    }
+                    if (r.missing === 0) { log('all ' + r.expected + ' textures captured'); resolve(); return; }
+                    // Some textures are never drawn (tiny ones are skipped on purpose). Once
+                    // some arrived and then nothing new came for 5 s, stop waiting.
+                    if (captured > 0 && now - lastProgressAt > 5000) {
+                        warn('textures: ' + r.missing + '/' + r.expected + ' never appeared, exporting without them');
+                        resolve();
+                        return;
+                    }
+                    if (now - start >= maxMs) {
+                        warn('textures: timed out with ' + r.missing + '/' + r.expected + ' missing, exporting without them');
+                        resolve();
+                        return;
+                    }
+                    poll();
+                }, 500);
+            })();
+        });
+    }
+
+    // ====================================================================
     // GLB Export
     // ====================================================================
     function downloadGLB() {
         log('export started');
-        mergeMRTextures().then(mergeOpacityTextures).then(function () {
+        waitForTextures().then(mergeMRTextures).then(mergeOpacityTextures).then(function () {
             _downloadGLBSync();
         }).catch(function (e) {
             err('export failed:', e.message, e.stack);
