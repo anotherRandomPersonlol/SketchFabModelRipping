@@ -114,3 +114,77 @@ The viewer re-instantiates meshes when WebGL contexts are recycled.
 position is logged. `CONFIG.DEDUPE_STRICT_WORLD` keeps both, but animated
 parents also move meshes, so it is off by default.
 
+## Merged from the old handoff doc (Oct 2026)
+
+### 15. Injection patches
+Five regex patches run on the viewer bundles (anchors in section 8):
+- patch_0 `/A\.renderInto\(n,E,R/g` inserts `,i`
+- patch_1 `/g\.renderInto=function\(e,i,r/g` inserts `,image_data`
+- patch_2 `/t\.drawArrays\(t\.TRIANGLES,0,6\)/g` inserts `,window.drawhookimg(t,image_data)`
+- patch_3 `/getResourceImage:function\(e,t\){/g` inserts `e = window.drawhookcanvas(e,this._imageModel);`
+- patch_4 `/(this\._stateCache\.drawGeometry\(this\._graphicContext,t\))/g` inserts `;try{window.attachbody(t);}catch(_){}`
+
+If the console shows `init` and `panel added` but no `patched` lines, the
+wrong bundle was served. Reload (the panel hints after 8 s and reloads
+once after 12 s). With zero meshes in the panel, patch_4 did not fire.
+
+### 16. Fixed gotchas (do NOT regress)
+- The MutationObserver must watch `document`, not `document.head`.
+- Guard per-frame pixel reads: `if (saveimagecache2[url].dataURL) return;`
+- Sketchfab is an SPA. Clear `window.allmodel` when the model changes.
+- The viewer runs in an iframe (URL contains `/embed`). Never add a
+  top-frame-only guard.
+- Vertex transform glTF evaluates: `worldVertex = YUP * W_mesh * palette[i] * restVertex`
+  (the same as the OSG shader).
+
+### 17. Texture pipeline
+- Texture names come from `imagemodel.attributes.name` (sanitized,
+  deduped with `_1`, `_2`), with the URL basename as a fallback.
+- Textures are written to `textures/<name>.<ext>` in the ZIP and
+  referenced by relative URI, not embedded.
+- Per-mesh channels: `obj.stateset._textureAttributeArrayList[i][0]._object`
+  has `_channels` and `_packedTextures`. AlbedoPBR maps to baseColor,
+  NormalMap to normal, AOPBR to occlusion, EmissivePBR to emissive.
+- UVs are `TexCoordN` with any N. The lowest non-empty one is used.
+- The V flip happens once, when building the TEXCOORD_0 accessor.
+  Never bake it into the parsed mesh.
+
+### 18. Known limits
+- No opacity or alpha handling (M_HEMTT_Glass exports opaque; the
+  Patriot GLB has no `alphaMode`)
+- No vertex colors (`COLOR_0` is never written; vertex-colored models
+  export untextured)
+- No EmitColor channel
+- Units are Sketchfab's, often cm. glTF expects metres.
+- No batch download, no progress UI, and no check for a 0-mesh export
+
+### 19. Regression values (Patriot, rest pose)
+Battery mesh (M_Patriot_Battery_Tires), bone 0 palette:
+`0.685 0 0.728 352.125 / 0.728 0 -0.685 446.509 / 0 1 0 -0`
+Truck mesh (M_PATRIOT_Radar_Tires), bone 0 palette:
+`1 0 0 0 / 0 0 -1 420.489 / 0 1 0 -0`
+
+### 20. Test procedure
+1. Hard reload the Patriot page. Expect `patched ...` lines and `panel added`; the panel shows `meshes: 7`.
+2. RECORD (or RECORD ALL CLIPS), then DOWNLOAD GLB. The log should be clean through `export done`.
+3. The ZIP holds the GLB (about 4 MB) and a `textures/` folder.
+4. Check the GLB in gltf-viewer.donmccurdy.com and in Blender: upright, textured, animated.
+5. For multi-clip, the GLB should list one animation per clip. The Patriot gives 10, with 15-18 channels each.
+6. Single-clip RECORD must still work after every change.
+
+### 21. Debug recipes
+- allmodel empty: wrong bundle, see 15. Check with
+  `performance.getEntriesByType('resource').filter(e => e.name.includes('2b5a23')).length`.
+- Joints fly apart: the quaternion hemisphere fix (section 6) is missing.
+- Model on its side: YUP must be on scene_root only, once, and skel_root must hold W_mesh.
+- Joints at the origin: W_mesh was not read from the mesh node.
+- Model too small or large in Blender: units are cm, scale by 0.01.
+- Only the first animation plays in Blender: look in the NLA editor for a
+  track overriding the action. Check the GLB in a glTF viewer first.
+
+### 22. Code conventions
+`log()`, `warn()` and `err()` (prefixed `[Ripper]`) once per significant
+action, never inside per-frame or per-vertex loops. ES5 only: `var`,
+function declarations, no arrows, template literals or destructuring.
+Sections are separated with `// ====`.
+
