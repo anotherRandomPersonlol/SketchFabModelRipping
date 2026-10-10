@@ -35,7 +35,8 @@
         AUTO_RELOAD_ON_FAILURE: true,
         MR_TEXTURE_FORMAT: 'jpeg',  // 'jpeg' (small) or 'png' (lossless)
         CLIP_FPS: 30,               // sample rate for multi-clip recording
-        CLIP_SETTLE_FRAMES: 2       // rAF ticks to wait after each seek
+        CLIP_SETTLE_FRAMES: 2,      // rAF ticks to wait after each seek
+        DEDUPE_STRICT_WORLD: false  // true: keep same-name meshes at different positions
     };
     var CONFIG_KEY = 'ripper_config_v1';
 
@@ -345,6 +346,18 @@
                                 ex._attributes.Vertex._elements)
                             ? ex._attributes.Vertex._elements.length : 0;
                 if (exVcount === vcount) {
+                    // Same name + vertex count but a different world position may be a
+                    // genuine second instance (e.g. repeated parts), not a re-instantiation.
+                    // Animated parents also move a mesh, so by default this only warns and
+                    // still merges (unchanged behaviour). Set DEDUPE_STRICT_WORLD to keep both.
+                    var wNew = computeWorldMatrix(obj), wEx = computeWorldMatrix(ex), wd = 0;
+                    for (var wi = 12; wi < 15; wi++) wd = Math.max(wd, Math.abs(wNew[wi] - wEx[wi]));
+                    if (wd > 1e-3) {
+                        warn('attachbody: "' + displayName + '" matches an existing mesh but sits ' +
+                             wd.toFixed(4) + ' away; ' +
+                             (CONFIG.DEDUPE_STRICT_WORLD ? 'keeping both' : 'merging (DEDUPE_STRICT_WORLD off)'));
+                        if (CONFIG.DEDUPE_STRICT_WORLD) continue;
+                    }
                     // Replace so the latest instance (with live palette)
                     // is what we read from during recording.
                     window.allmodel[i] = obj;
