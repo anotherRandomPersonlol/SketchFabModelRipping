@@ -525,7 +525,7 @@
                                 duration: inst ? inst.duration : 0 });
                 } else if (act.length === 0) {
                     noClipIdx = k;
-                    log('list item ' + k + ' "' + name + '" has no clip, skipped');
+                    log('list item ' + k + ' "' + name + '" has no clip (treated as the Static Pose item)');
                 } else {
                     warn('list item ' + k + ' "' + name + '" activated ' + act.length + ' clips, skipped');
                 }
@@ -599,6 +599,14 @@
             if (t >= def.duration) { finish(null); return; }
             var act = activeClipUids(mgr);
             if (act.length !== 1 || act[0] !== def.uid) {
+                // "Play all" advances to the next clip as this one ends, and the sim
+                // clock restarts. If we already have (almost) the whole clip, that is
+                // the normal end, not a problem.
+                if (lastT >= def.duration - 0.1) {
+                    log('clip ' + def.name + ': viewer moved to the next clip at the end, frames=' + frames.length);
+                    finish(null);
+                    return;
+                }
                 finish('active clip changed mid-recording at t=' + t.toFixed(3) +
                        ' (active=' + act.join(',') + '), truncated');
                 return;
