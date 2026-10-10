@@ -3,9 +3,9 @@
 // Paste into the viewer iframe console (same context as the userscript)
 // after the model has loaded. Output lines are also kept in
 // window.__matProbe (join with "\n").
-// Vertex-color probe found no color attribute on the Kalibr model, so
-// the colors are probably material constants: stateset uniforms or an
-// osg.Material in stateset._attributeArray.
+// v2: the Kalibr meshes have no stateset of their own ("no stateset"),
+// so this walks UP the parent chain and dumps every stateset it finds
+// (uniforms + attributes), shared ones only once.
 // ====================================================================
 (function () {
     var TAG = '[MatProbe]';
@@ -22,7 +22,6 @@
         for (var i = 0; i < Math.min(n, a.length); i++) out.push(Math.round(a[i] * 1000) / 1000);
         return '[' + out.join(',') + (a.length > n ? ',...' : '') + ']';
     }
-    // short description of any value; objects get their numeric/array fields listed
     function desc(v, depth) {
         if (v === null || v === undefined) return String(v);
         if (typeof v === 'number' || typeof v === 'boolean') return String(v);
@@ -45,16 +44,11 @@
         return typeof v;
     }
 
-    var seen = {}, shown = 0;
-    am.forEach(function (o, i) {
-        var ss = o.stateset;
-        var name = (ss && ss._name) || o._name || ('mesh_' + i);
-        if (seen[name]) return;       // one dump per material name keeps this short
-        seen[name] = true;
-        if (++shown > 12) return;     // 12 distinct materials are plenty
-        L('--- mesh[' + i + '] ' + name + ' ---');
-        if (!ss) { L('  no stateset'); return; }
-
+    var seenSS = [];
+    function dumpStateSet(ss, label) {
+        if (!ss || seenSS.indexOf(ss) !== -1) { L('  ' + label + ': (already shown or none)'); return; }
+        seenSS.push(ss);
+        L('  ' + label + ': stateset name=' + JSON.stringify(ss._name) + ' ctor=' + ctor(ss));
         var un = ss.uniforms || {};
         Object.keys(un).forEach(function (k) {
             var u = un[k], data = null;
@@ -62,17 +56,37 @@
                 data = (u && typeof u.getInternalArray === 'function') ? u.getInternalArray()
                      : (u && (u._data || u._value));
             } catch (e) {}
-            L('  uniform ' + k + ': ' + (data ? desc(data, 1) : desc(u, 1)));
+            L('    uniform ' + k + ': ' + (data ? desc(data, 1) : desc(u, 1)));
         });
-
         var aa = ss._attributeArray || [];
         for (var a = 0; a < aa.length; a++) {
             if (!aa[a]) continue;
             var at = aa[a]._object || aa[a].attribute || aa[a]._attribute || aa[a];
-            L('  attribute[' + a + ']: ' + ctor(at) + ' ' + desc(at, 2));
+            L('    attribute[' + a + ']: ' + ctor(at) + ' ' + desc(at, 2));
         }
-        L('  active attribute: ' + desc(ss._activeAttribute, 1));
+        L('    texture slots: ' + ((ss._textureAttributeArrayList || []).length));
+    }
+
+    var seenNames = {}, shown = 0;
+    am.forEach(function (o, i) {
+        var name = o._name || ('mesh_' + i);
+        if (seenNames[name] || shown >= 4) return;   // 4 meshes with different names is enough
+        seenNames[name] = true;
+        shown++;
+        L('--- mesh[' + i + '] ' + name + ' | ctor=' + ctor(o) + ' ---');
+        var own = Object.keys(o).filter(function (k) { return !/^(_parents|_attributes|_primitives)$/.test(k); });
+        L('  own keys: ' + own.join(','));
+        var viaGetter = null;
+        try { viaGetter = typeof o.getStateSet === 'function' ? o.getStateSet() : null; } catch (e) {}
+        dumpStateSet(o.stateset || o._stateSet || viaGetter, 'mesh stateset');
+
+        var cur = o._parents && o._parents[0], depth = 1;
+        while (cur && depth <= 12) {
+            var ss2 = cur.stateset || cur._stateSet;
+            if (ss2) dumpStateSet(ss2, 'ancestor ' + depth + ' (' + ctor(cur) + ' ' + JSON.stringify(cur._name) + ')');
+            cur = cur._parents && cur._parents[0];
+            depth++;
+        }
     });
-    L('(' + Object.keys(seen).length + ' distinct materials, ' + shown + ' shown)');
     L('read all: window.__matProbe.join("\\n")');
 })();
