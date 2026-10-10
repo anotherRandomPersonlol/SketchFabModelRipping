@@ -1172,20 +1172,20 @@
 
             var meshes = [], accs = [], bvs = [], mats = [];
             var matsChannelInfo = {}; // mi -> { channelName: {url, name} }
-            var totalBuf = [], off = 0;
+            var binChunks = [], off = 0;   // Uint8Array chunks, joined once at the end
             var matHasUV = {};
             var meshHasSkinning = {};
 
             function addBV(ta, target) {
                 var len = ta.byteLength;
                 var al = pad(off), padn = al - off;
-                if (padn > 0) { for (var i = 0; i < padn; i++) totalBuf.push(0); off += padn; }
+                if (padn > 0) { binChunks.push(new Uint8Array(padn)); off += padn; }
                 var idx = bvs.length;
                 var bv = { buffer: 0, byteOffset: off, byteLength: len };
                 if (target) bv.target = target;
                 bvs.push(bv);
                 var bytes = new Uint8Array(ta.buffer, ta.byteOffset, ta.byteLength);
-                for (var j = 0; j < bytes.length; j++) totalBuf.push(bytes[j]);
+                binChunks.push(bytes);
                 off += len;
                 return idx;
             }
@@ -1664,7 +1664,12 @@
             var jsonStr = JSON.stringify(gltf);
             var jsonBytes = new TextEncoder().encode(jsonStr);
             var jAl = pad(jsonBytes.byteLength), jPad = jAl - jsonBytes.byteLength;
-            var bin = new Uint8Array(totalBuf).buffer;
+            var binAll = new Uint8Array(off), binPos = 0;
+            for (var bc = 0; bc < binChunks.length; bc++) {
+                binAll.set(binChunks[bc], binPos);
+                binPos += binChunks[bc].length;
+            }
+            var bin = binAll.buffer;
             var bAl = pad(bin.byteLength), bPad = bAl - bin.byteLength;
             var total = 12 + 8 + jAl + 8 + bAl;
 
