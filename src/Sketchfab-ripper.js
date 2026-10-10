@@ -1384,7 +1384,11 @@
 
             // One time accessor + sampler/channel lists per clip.
             var tracks = clipSets.map(function (cs) {
-                var times = cs.frames.map(function (f) { return f.time; });
+                // Start every clip at exactly t = 0 (the single-clip recorder's first frame
+                // lands ~16 ms after the start). Store float32-rounded values so the
+                // accessor min/max match the buffer exactly.
+                var tFirst = cs.frames[0].time;
+                var times = cs.frames.map(function (f) { return Math.fround(f.time - tFirst); });
                 var tV = addBV(new Float32Array(times));
                 var tAcc = accs.length;
                 accs.push({ bufferView: tV, componentType: 5126, count: times.length,
