@@ -1144,11 +1144,116 @@
     }
 
     // ====================================================================
+    // Opacity merge
+    // ====================================================================
+    // Sketchfab ships transparency as a separate grayscale Opacity image
+    // (black = see-through, white = opaque; often a JPEG, so we use its
+    // luminance, not a real alpha channel). glTF wants it in the alpha of the
+    // base color texture. Merge per mesh into <mesh>_Alpha.png and mark the
+    // material BLEND. The color and mask can share one metadata name (both
+    // "HEMTT_Glass_BaseColor" on the Patriot), so sources are matched by URL.
+    function _urlTail(u) {
+        var parts = normalizeUrl(u).split('/');
+        var last = parts[parts.length - 1] || '';
+        return last.replace(/\.[A-Za-z0-9]+$/, '');
+    }
+
+    function _blobForUrl(url) {
+        var want = normalizeUrl(url), wantTail = _urlTail(url), hit = null, key, t;
+        // Exact URL first, then the file hash (Sketchfab serves size variants of
+        // the same file under different paths).
+        for (key in saveimagecache2) {
+            if (!saveimagecache2.hasOwnProperty(key)) continue;
+            t = saveimagecache2[key];
+            if (t && t.dataURL && want && normalizeUrl(key) === want) { hit = t; break; }
+        }
+        if (!hit && wantTail) {
+            for (key in saveimagecache2) {
+                if (!saveimagecache2.hasOwnProperty(key)) continue;
+                t = saveimagecache2[key];
+                if (t && t.dataURL && _urlTail(key) === wantTail) { hit = t; break; }
+            }
+        }
+        if (!hit) return null;
+        return objects[hit.name + (hit.fileExt || '.png')] || null;
+    }
+
+    function _mergeOneOpacity(cm) {
+        var colorBlob = _blobForUrl(cm.AlbedoPBR.url);
+        var maskBlob = _blobForUrl(cm.Opacity.url);
+        if (!colorBlob || !maskBlob) {
+            warn('opacity merge: missing source (color=' + !!colorBlob + ' mask=' + !!maskBlob + ')');
+            return Promise.resolve(null);
+        }
+        return Promise.all([createImageBitmap(colorBlob), createImageBitmap(maskBlob)]).then(function (bmps) {
+            var cBmp = bmps[0], mBmp = bmps[1];
+            var W = cBmp.width, H = cBmp.height;
+            function readPixels(bmp) {
+                var c = document.createElement('canvas');
+                c.width = W; c.height = H;
+                var x = c.getContext('2d');
+                x.drawImage(bmp, 0, 0, W, H);   // the mask is scaled to the color size
+                return x.getImageData(0, 0, W, H).data;
+            }
+            var cData = readPixels(cBmp), mData = readPixels(mBmp);
+            var out = new Uint8ClampedArray(W * H * 4);
+            for (var p = 0; p < W * H; p++) {
+                var q = p * 4;
+                out[q] = cData[q];
+                out[q + 1] = cData[q + 1];
+                out[q + 2] = cData[q + 2];
+                // luminance of the mask: black = clear, white = solid
+                out[q + 3] = Math.round(0.2126 * mData[q] + 0.7152 * mData[q + 1] + 0.0722 * mData[q + 2]);
+            }
+            var oc = document.createElement('canvas');
+            oc.width = W; oc.height = H;
+            oc.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
+            return new Promise(function (res) {
+                oc.toBlob(function (b) { res({ blob: b, ext: '.png' }); }, 'image/png');   // PNG: JPEG drops alpha
+            });
+        });
+    }
+
+    function mergeOpacityTextures() {
+        var jobs = [];
+        var seen = {};
+        window.allmodel.forEach(function (obj, i) {
+            var ss = obj.stateset;
+            var meshName = obj._name || (ss && ss._name) || ('mesh_' + i);
+            var cm = getChannelTextureMap(obj);
+            if (!cm.Opacity || !cm.AlbedoPBR) return;
+            var san = sanitizeTextureName(meshName);
+            if (seen[san]) return;
+            seen[san] = true;
+            if (normalizeUrl(cm.Opacity.url) === normalizeUrl(cm.AlbedoPBR.url)) {
+                log('opacity merge: ' + meshName + ' uses one file for color and opacity, skipped');
+                return;
+            }
+            jobs.push(
+                _mergeOneOpacity(cm).then(function (result) {
+                    if (!result || !result.blob) return;
+                    var fname = san + '_Alpha' + result.ext;
+                    objects[fname] = result.blob;
+                    saveimagecache2['__merged_op__:' + san] = {
+                        name: san + '_Alpha',
+                        fileExt: result.ext,
+                        dataURL: 'merged'
+                    };
+                    log('merged opacity:', meshName, '→', fname, result.blob.size + 'B');
+                }).catch(function (e) {
+                    warn('opacity merge failed for', meshName, e.message);
+                })
+            );
+        });
+        return jobs.length ? Promise.all(jobs) : Promise.resolve();
+    }
+
+    // ====================================================================
     // GLB Export
     // ====================================================================
     function downloadGLB() {
         log('export started');
-        mergeMRTextures().then(function () {
+        mergeMRTextures().then(mergeOpacityTextures).then(function () {
             _downloadGLBSync();
         }).catch(function (e) {
             err('export failed:', e.message, e.stack);
@@ -1350,6 +1455,16 @@
                     if (mrIdx !== undefined) {
                         m.pbrMetallicRoughness.metallicRoughnessTexture = { index: mrIdx };
                         assigned = true;
+                    }
+
+                    // Merged opacity (see mergeOpacityTextures): the RGBA texture
+                    // replaces the plain base color and the material blends.
+                    var alphaIdx = textureNameToIndex[sanitizeTextureName(m.name) + '_Alpha'];
+                    if (alphaIdx !== undefined) {
+                        m.pbrMetallicRoughness.baseColorTexture = { index: alphaIdx };
+                        m.alphaMode = 'BLEND';
+                        assigned = true;
+                        log('material ' + m.name + ': alphaMode BLEND with merged opacity texture');
                     }
 
                     if (!assigned) {

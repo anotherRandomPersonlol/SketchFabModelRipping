@@ -150,8 +150,10 @@ once after 12 s). With zero meshes in the panel, patch_4 did not fire.
   Never bake it into the parsed mesh.
 
 ### 18. Known limits
-- No opacity or alpha handling (M_HEMTT_Glass exports opaque; the
-  Patriot GLB has no `alphaMode`)
+- Opacity: a separate Opacity image is merged into the base color alpha
+  (`<mesh>_Alpha.png`, material `alphaMode: BLEND`), using the mask's
+  luminance (black = see-through). Mask and color can share one metadata
+  name, so they are matched by URL. Not yet checked in Blender.
 - No vertex colors (`COLOR_0` is never written; vertex-colored models
   export untextured)
 - No EmitColor channel
