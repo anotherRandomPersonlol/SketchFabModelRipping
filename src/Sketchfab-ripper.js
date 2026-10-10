@@ -19,6 +19,10 @@
     window.recordedFrames      = [];
     window.recordingStartTime  = 0;
     window.recordingRafId      = null;
+    window.clips               = [];     // [{ name, uid, frames }]
+    window.clipDefs            = [];     // [{ index, uid, name, duration }]
+    window.clipRecording       = false;
+    window.clipProgress        = '';
     window._anyAnchorsMatched  = false;
 
     var saveimagecache2 = {};
@@ -28,7 +32,9 @@
     var CONFIG = {
         MAX_RECORD_SECONDS: 5,
         AUTO_RELOAD_ON_FAILURE: true,
-        MR_TEXTURE_FORMAT: 'jpeg'  // 'jpeg' (small) or 'png' (lossless)
+        MR_TEXTURE_FORMAT: 'jpeg',  // 'jpeg' (small) or 'png' (lossless)
+        CLIP_FPS: 30,               // sample rate for multi-clip recording
+        CLIP_SETTLE_FRAMES: 2       // rAF ticks to wait after each seek
     };
     var CONFIG_KEY = 'ripper_config_v1';
 
@@ -345,7 +351,7 @@
     }
 
     function startRecording() {
-        if (window.animationRecording) return;
+        if (window.animationRecording || window.clipRecording) return;
         window.animationRecording = true;
         window.recordedFrames = [];
         window.recordingStartTime = performance.now() / 1000;
@@ -373,6 +379,253 @@
     function setRecLabel(text) {
         var el = document.getElementById('recBtnLabel');
         if (el) el.textContent = text;
+    }
+
+    // ====================================================================
+    // Animation clips
+    // ====================================================================
+    var _clipMgrCache = null;
+
+    function findAnimationManager() {
+        if (_clipMgrCache && _clipMgrCache._instanceAnimations) return _clipMgrCache;
+        var cur = window.allmodel[0], guard = 0;
+        while (cur && guard++ < 64) {
+            var cbs = cur._updateCallbacks || [];
+            for (var i = 0; i < cbs.length; i++) {
+                var c = cbs[i];
+                if (c && c._instanceAnimations && typeof c.stopAllAnimation === 'function') {
+                    _clipMgrCache = c;
+                    return c;
+                }
+            }
+            cur = cur._parents && cur._parents[0];
+        }
+        return null;
+    }
+
+    function getClipCount() {
+        var mgr = findAnimationManager();
+        return mgr ? Object.keys(mgr._instanceAnimations).length : 0;
+    }
+
+    function waitFrames(n, cb) {
+        if (n <= 0) { cb(); return; }
+        requestAnimationFrame(function () { waitFrames(n - 1, cb); });
+    }
+
+    function activeClipUids(mgr) {
+        var out = [];
+        var list = mgr._activeAnimationList || [];
+        for (var i = 0; i < list.length; i++) out.push(list[i].name);
+        return out;
+    }
+
+    // UI class names can change; try the known selector first, then looser ones.
+    // Non-clip items are harmless: discovery skips any item that activates no clip.
+    var CLIP_ITEM_SELECTORS = [
+        '.animation-list .animation-item',
+        '[class*="animation"][class*="list"] li',
+        'li[class*="animation-item"]'
+    ];
+
+    function getClipItems() {
+        for (var s = 0; s < CLIP_ITEM_SELECTORS.length; s++) {
+            var found = document.querySelectorAll(CLIP_ITEM_SELECTORS[s]);
+            if (found.length) return found;
+        }
+        return [];
+    }
+
+    // Click list item k (the viewer does its own stop/start) and wait.
+    function selectClipItem(k, cb) {
+        var items = getClipItems();
+        if (!items[k]) { cb(false); return; }
+        // Drain any start queued earlier (e.g. by a stray playAnimation call). The
+        // manager flushes _startAnimations on its next update, and a leftover shows up
+        // as an extra active clip. stopAllAnimation() does NOT clear this queue.
+        var mgr = findAnimationManager();
+        if (mgr && mgr._startAnimations) mgr._startAnimations = {};
+        items[k].click();
+        waitFrames(6, function () { cb(true); });
+    }
+
+    function snapshotsDiffer(a, b) {
+        for (var m = 0; m < a.meshes.length; m++) {
+            var pa = a.meshes[m].palette;
+            var pb = b.meshes[m] && b.meshes[m].palette;
+            if (!pa || !pb) continue;
+            for (var i = 0; i < pa.length; i++) {
+                if (Math.abs(pa[i] - pb[i]) > 1e-5) return true;
+            }
+        }
+        return false;
+    }
+
+    // Clicks every list item and reads which clip UID became active.
+    // cb(defs, origIdx): defs = [{ index, uid, name, duration }];
+    // origIdx = list item that was selected before discovery (restored at the end).
+    function discoverAnimationClips(cb) {
+        var mgr = findAnimationManager();
+        var count = getClipItems().length;
+        if (!mgr || !count) {
+            warn('clip discovery: manager=' + !!mgr + ' listItems=' + count);
+            cb([], 0);
+            return;
+        }
+        var origUid = activeClipUids(mgr)[0] || null;
+        var defs = [], noClipIdx = -1, i = 0;
+
+        function next() {
+            if (i >= count) { finish(); return; }
+            var k = i++;
+            selectClipItem(k, function (ok) {
+                if (!ok) { next(); return; }
+                var li = getClipItems()[k];
+                var name = (li.textContent || '').trim().replace(/\s+/g, ' ');
+                var act = activeClipUids(mgr);
+                if (act.length === 1) {
+                    var inst = mgr._instanceAnimations[act[0]];
+                    defs.push({ index: k, uid: act[0], name: name,
+                                duration: inst ? inst.duration : 0 });
+                } else if (act.length === 0) {
+                    noClipIdx = k;
+                    log('list item ' + k + ' "' + name + '" has no clip, skipped');
+                } else {
+                    warn('list item ' + k + ' "' + name + '" activated ' + act.length + ' clips, skipped');
+                }
+                next();
+            });
+        }
+
+        function finish() {
+            var origIdx = (noClipIdx >= 0) ? noClipIdx : 0;
+            for (var d = 0; d < defs.length; d++) {
+                if (defs[d].uid === origUid) { origIdx = defs[d].index; break; }
+            }
+            selectClipItem(origIdx, function () {
+                window.clipDefs = defs;
+                log('discovered ' + defs.length + ' clips');
+                for (var q = 0; q < defs.length; q++) {
+                    log('clip ' + defs[q].index + ': ' + defs[q].name +
+                        ' (' + defs[q].duration.toFixed(2) + 's)');
+                }
+                cb(defs, origIdx);
+            });
+        }
+        next();
+    }
+
+    function recordClipSeek(mgr, def, base, cb) {
+        var fps = CONFIG.CLIP_FPS;
+        // Samples cover [0, duration). The closing frame at t = duration is a copy of
+        // frame 0 (the clip loops), so we never seek to the exact end: in "Play all"
+        // mode the viewer's end-of-clip handling may jump to the next clip there.
+        var n = Math.max(2, Math.round(def.duration * fps));
+        var frames = [], idx = 0;
+        function step() {
+            if (idx >= n) {
+                frames.push({ time: def.duration, meshes: frames[0].meshes });
+                cb(frames);
+                return;
+            }
+            var local = idx / fps;
+            mgr.setSeekTime(base + local);
+            waitFrames(CONFIG.CLIP_SETTLE_FRAMES, function () {
+                var snap = snapshotFrame();
+                frames.push({ time: local, meshes: snap.meshes });
+                idx++;
+                step();
+            });
+        }
+        step();
+    }
+
+    function recordClipRealtime(mgr, def, base, cb) {
+        mgr.setSeekTime(base);
+        if (mgr._pause) mgr.togglePause();
+        var t0 = performance.now() / 1000, frames = [];
+        function tick() {
+            var t = performance.now() / 1000 - t0;
+            frames.push({ time: t, meshes: snapshotFrame().meshes });
+            if (t >= def.duration) { cb(frames); return; }
+            requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+    }
+
+    function recordClip(mgr, def, cb) {
+        selectClipItem(def.index, function (ok) {
+            var act = activeClipUids(mgr);
+            if (!ok || act.length !== 1 || act[0] !== def.uid) {
+                warn('clip switch failed: ' + def.name + ' active=' + act.join(','));
+                cb(null);
+                return;
+            }
+            var inst = mgr._instanceAnimations[def.uid];
+            var base = (inst && inst.start) || 0;
+            if (!mgr._pause) mgr.togglePause();
+            // Real-time capture (seek-based sampling proved unreliable
+            // on this viewer; the single-clip path in v0.9.8 already
+            // uses real-time and works). This is the fallback that was
+            // already in the diffs, now made the primary path.
+            mgr.setSeekTime(base);
+            waitFrames(CONFIG.CLIP_SETTLE_FRAMES, function () {
+                recordClipRealtime(mgr, def, base, cb);
+            });
+        });
+    }
+
+    function setRecAllLabel(text) {
+        var el = document.getElementById('recAllBtn');
+        if (el) el.textContent = text;
+    }
+
+    function endRecordAll(mgr, wasPaused, origIdx) {
+        selectClipItem(origIdx, function () {
+            if (mgr._pause !== wasPaused) mgr.togglePause();
+            window.clipRecording = false;
+            window.clipProgress = '';
+            setRecAllLabel('RECORD ALL CLIPS');
+            log('record-all finished, clips recorded: ' + window.clips.length);
+        });
+    }
+
+    function recordAllClips() {
+        if (window.animationRecording || window.clipRecording) {
+            warn('already recording');
+            return;
+        }
+        var mgr = findAnimationManager();
+        if (!mgr) { warn('no animation manager found; use RECORD (single clip)'); return; }
+        window.clipRecording = true;
+        window.clips = [];
+        setRecAllLabel('WORKING...');
+        var wasPaused = mgr._pause;
+        log('record-all started, clips in manager: ' + getClipCount() +
+            ', fps ' + CONFIG.CLIP_FPS + ' (keep this tab visible)');
+        discoverAnimationClips(function (defs, origIdx) {
+            if (defs.length < 2) {
+                warn('only ' + defs.length + ' usable clip(s); single-clip path stays in use');
+                endRecordAll(mgr, wasPaused, origIdx);
+                return;
+            }
+            var i = 0;
+            function nextClip() {
+                if (i >= defs.length) { endRecordAll(mgr, wasPaused, origIdx); return; }
+                var d = defs[i++];
+                window.clipProgress = i + '/' + defs.length;
+                recordClip(mgr, d, function (frames) {
+                    if (frames && frames.length > 1) {
+                        window.clips.push({ name: d.name, uid: d.uid, frames: frames });
+                        log('clip recorded: ' + d.name + ' frames=' + frames.length);
+                    } else {
+                        warn('clip skipped: ' + d.name);
+                    }
+                    nextClip();
+                });
+            }
+            nextClip();
+        });
     }
 
     // ====================================================================
@@ -423,6 +676,13 @@
             if (!window.animationRecording) startRecording(); else stopRecording();
         });
         panel.appendChild(btnRec);
+
+        var btnAll = document.createElement('button');
+        btnAll.id = 'recAllBtn';
+        btnAll.textContent = 'RECORD ALL CLIPS';
+        btnAll.style.cssText = btnDL.style.cssText;
+        btnAll.addEventListener('click', function () { recordAllClips(); });
+        panel.appendChild(btnAll);
 
         var status = document.createElement('div');
         status.id = 'ripper-status';
@@ -531,9 +791,13 @@
             if (!s) return;
             var m = window.allmodel.length;
             var f = window.recordedFrames.length;
-            s.textContent = (window.animationRecording ? '● REC' : 'idle')
-                          + ' · meshes:' + m + ' frames:' + f;
-            s.style.color = window.animationRecording ? '#f66' : '#aaa';
+            var busy = window.animationRecording || window.clipRecording;
+            s.textContent = (window.animationRecording ? '● REC'
+                          : (window.clipRecording ? '● CLIPS ' + window.clipProgress : 'idle'))
+                          + ' · meshes:' + m + ' frames:' + f
+                          + ' · clips:' + getClipCount()
+                          + (window.clips.length ? ' (rec ' + window.clips.length + ')' : '');
+            s.style.color = busy ? '#f66' : '#aaa';
         }, 500);
 
         (function (el, handle) {
@@ -924,20 +1188,39 @@
                 });
             }
 
-            var liveSnap = (window.recordedFrames.length > 1) ? null : snapshotFrame().meshes;
+            // ---- animation clips (multi-clip aware) ----
+            var mlA = document.getElementsByClassName('model-name__label')[0];
+            var animBase = mlA ? mlA.textContent.trim().replace(/\.+$/, '') : 'model';
+            var clipSets = [];
+            if (window.clips && window.clips.length > 1) {
+                window.clips.forEach(function (c) {
+                    if (c && c.frames && c.frames.length > 1) {
+                        clipSets.push({ name: c.name, frames: c.frames });
+                    }
+                });
+            }
+            if (clipSets.length > 1) {
+                log('export: multi-clip mode, clips=' + clipSets.length);
+            } else {
+                // single-clip path: same data source and behaviour as before
+                clipSets = (window.recordedFrames.length > 1)
+                    ? [{ name: animBase + '_anim', frames: window.recordedFrames }] : [];
+            }
+            var hasFrames = clipSets.length > 0;
+            var liveSnap = hasFrames ? null : snapshotFrame().meshes;
             var gltfSkins = [];
             var animations;
-            var hasFrames = window.recordedFrames.length > 1;
-            var times = hasFrames ? window.recordedFrames.map(function (f) { return f.time; }) : null;
-            var timeAccIdx = -1;
-            if (hasFrames) {
+
+            // One time accessor + sampler/channel lists per clip.
+            var tracks = clipSets.map(function (cs) {
+                var times = cs.frames.map(function (f) { return f.time; });
                 var tV = addBV(new Float32Array(times));
-                timeAccIdx = accs.length;
+                var tAcc = accs.length;
                 accs.push({ bufferView: tV, componentType: 5126, count: times.length,
                             type: 'SCALAR', min: [times[0]], max: [times[times.length - 1]] });
-            }
-
-            var allSamplers = [], allChannels = [];
+                return { name: cs.name, frames: cs.frames, times: times, timeAcc: tAcc,
+                         samplers: [], channels: [] };
+            });
 
             function expandMat3x4(pal, boneIdx) {
                 var b = boneIdx * 12;
@@ -958,8 +1241,9 @@
                 var jointCount = meshHasSkinning[mIdx];
                 var paletteRef = null;
                 if (hasFrames) {
-                    for (var fi = 0; fi < window.recordedFrames.length; fi++) {
-                        var fm = window.recordedFrames[fi].meshes[mIdx];
+                    var refFrames = tracks[0].frames;
+                    for (var fi = 0; fi < refFrames.length; fi++) {
+                        var fm = refFrames[fi].meshes[mIdx];
                         if (fm && fm.palette) {
                             var fromPal = (fm.palette.length / 12) | 0;
                             if (fromPal > jointCount) jointCount = fromPal;
@@ -969,8 +1253,6 @@
                     }
                 }
 
-                // The mesh's own world transform (via getMatrix()/.matrix chain)
-                // Parent of the joints so the whole rig inherits it.
                 var W_mesh = computeWorldMatrix(obj);
 
                 var skelRootIdx = nodes.length;
@@ -1008,71 +1290,92 @@
 
                 if (hasFrames && paletteRef) {
                     var animatedCount = 0;
+                    var animatedJoints = {};
                     for (var jn = 0; jn < jointCount; jn++) {
-                        var T = [], R = [], S = [];
-                        var moved = false, first = null;
-                        var prevQ = null;
-                        for (var fi2 = 0; fi2 < window.recordedFrames.length; fi2++) {
-                            var fmesh = window.recordedFrames[fi2].meshes[mIdx];
-                            var pal = fmesh && fmesh.palette;
-                            var mPal = (pal && pal.length >= (jn + 1) * 12)
-                                     ? expandMat3x4(pal, jn) : identityMat4();
-                            if (first === null) first = mPal.slice();
-                            else if (!moved) {
-                                for (var vi = 0; vi < 16; vi++) {
-                                    if (Math.abs(mPal[vi] - first[vi]) > 1e-5) { moved = true; break; }
+                        // Per-clip motion test: does this joint's TRS vary across
+                        // each clip's own frames? Only clips where it varies get
+                        // channels. This lets separate clips compose in Blender's
+                        // NLA without fighting each other.
+                        var clipHasMotion = [];
+                        var anyMotion = false;
+                        for (var cj = 0; cj < tracks.length; cj++) {
+                            var frC = tracks[cj].frames;
+                            var prev = null, movedHere = false;
+                            for (var fj = 0; fj < frC.length && !movedHere; fj++) {
+                                var fmeshJ = frC[fj].meshes[mIdx];
+                                var palJ = fmeshJ && fmeshJ.palette;
+                                var mJ = (palJ && palJ.length >= (jn + 1) * 12)
+                                       ? expandMat3x4(palJ, jn) : identityMat4();
+                                if (prev !== null) {
+                                    for (var vv = 0; vv < 16; vv++) {
+                                        if (Math.abs(mJ[vv] - prev[vv]) > 1e-5) { movedHere = true; break; }
+                                    }
                                 }
+                                prev = mJ;
                             }
-                            var d = decomposeMat4(mPal);
-                            if (prevQ) {
-                                var dot = d.rotation[0]*prevQ[0] + d.rotation[1]*prevQ[1]
-                                        + d.rotation[2]*prevQ[2] + d.rotation[3]*prevQ[3];
-                                if (dot < 0) {
-                                    d.rotation[0] = -d.rotation[0];
-                                    d.rotation[1] = -d.rotation[1];
-                                    d.rotation[2] = -d.rotation[2];
-                                    d.rotation[3] = -d.rotation[3];
-                                }
-                            }
-                            prevQ = d.rotation.slice();
-                            T.push(d.translation[0], d.translation[1], d.translation[2]);
-                            R.push(d.rotation[0], d.rotation[1], d.rotation[2], d.rotation[3]);
-                            S.push(d.scale[0], d.scale[1], d.scale[2]);
+                            clipHasMotion[cj] = movedHere;
+                            if (movedHere) anyMotion = true;
                         }
-                        if (!moved) continue;
+                        if (!anyMotion) continue;
                         animatedCount++;
-
                         var nIdx = jointNodeIndices[jn];
-                        var aT = accs.length;
-                        accs.push({ bufferView: addBV(new Float32Array(T)), componentType: 5126,
-                                    count: times.length, type: 'VEC3' });
-                        allSamplers.push({ input: timeAccIdx, interpolation: 'LINEAR', output: aT });
-                        allChannels.push({ sampler: allSamplers.length - 1,
-                                           target: { node: nIdx, path: 'translation' } });
+                        animatedJoints[nIdx] = true;
 
-                        var aR = accs.length;
-                        accs.push({ bufferView: addBV(new Float32Array(R)), componentType: 5126,
-                                    count: times.length, type: 'VEC4' });
-                        allSamplers.push({ input: timeAccIdx, interpolation: 'LINEAR', output: aR });
-                        allChannels.push({ sampler: allSamplers.length - 1,
-                                           target: { node: nIdx, path: 'rotation' } });
+                        for (var ci = 0; ci < tracks.length; ci++) {
+                            if (!clipHasMotion[ci]) continue;   // only clips where it moved
+                            var tr = tracks[ci];
+                            var T = [], R = [], S = [];
+                            var prevQ = null;   // hemisphere fix resets per clip, per joint
+                            for (var fi3 = 0; fi3 < tr.frames.length; fi3++) {
+                                var fmesh = tr.frames[fi3].meshes[mIdx];
+                                var pal = fmesh && fmesh.palette;
+                                var mPal = (pal && pal.length >= (jn + 1) * 12)
+                                         ? expandMat3x4(pal, jn) : identityMat4();
+                                var d = decomposeMat4(mPal);
+                                if (prevQ) {
+                                    var dot = d.rotation[0]*prevQ[0] + d.rotation[1]*prevQ[1]
+                                            + d.rotation[2]*prevQ[2] + d.rotation[3]*prevQ[3];
+                                    if (dot < 0) {
+                                        d.rotation[0] = -d.rotation[0];
+                                        d.rotation[1] = -d.rotation[1];
+                                        d.rotation[2] = -d.rotation[2];
+                                        d.rotation[3] = -d.rotation[3];
+                                    }
+                                }
+                                prevQ = d.rotation.slice();
+                                T.push(d.translation[0], d.translation[1], d.translation[2]);
+                                R.push(d.rotation[0], d.rotation[1], d.rotation[2], d.rotation[3]);
+                                S.push(d.scale[0], d.scale[1], d.scale[2]);
+                            }
 
-                        var aS = accs.length;
-                        accs.push({ bufferView: addBV(new Float32Array(S)), componentType: 5126,
-                                    count: times.length, type: 'VEC3' });
-                        allSamplers.push({ input: timeAccIdx, interpolation: 'LINEAR', output: aS });
-                        allChannels.push({ sampler: allSamplers.length - 1,
-                                           target: { node: nIdx, path: 'scale' } });
+                            var aT = accs.length;
+                            accs.push({ bufferView: addBV(new Float32Array(T)), componentType: 5126,
+                                        count: tr.times.length, type: 'VEC3' });
+                            tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aT });
+                            tr.channels.push({ sampler: tr.samplers.length - 1,
+                                               target: { node: nIdx, path: 'translation' } });
+
+                            var aR = accs.length;
+                            accs.push({ bufferView: addBV(new Float32Array(R)), componentType: 5126,
+                                        count: tr.times.length, type: 'VEC4' });
+                            tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aR });
+                            tr.channels.push({ sampler: tr.samplers.length - 1,
+                                               target: { node: nIdx, path: 'rotation' } });
+
+                            var aS = accs.length;
+                            accs.push({ bufferView: addBV(new Float32Array(S)), componentType: 5126,
+                                        count: tr.times.length, type: 'VEC3' });
+                            tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aS });
+                            tr.channels.push({ sampler: tr.samplers.length - 1,
+                                               target: { node: nIdx, path: 'scale' } });
+                        }
                     }
 
+                    // Give every joint its rest-pose TRS as the node default.
+                    // Animation channels override this where present. Without
+                    // it, a joint that has animation would collapse to identity
+                    // (origin) when no animation is playing.
                     for (var sj = 0; sj < jointCount; sj++) {
-                        var wasAnimated = false;
-                        for (var cc = 0; cc < allChannels.length; cc++) {
-                            if (allChannels[cc].target.node === jointNodeIndices[sj]) {
-                                wasAnimated = true; break;
-                            }
-                        }
-                        if (wasAnimated) continue;
                         var pal0 = expandMat3x4(paletteRef.palette, sj);
                         var d0 = decomposeMat4(pal0);
                         var jnIdx = jointNodeIndices[sj];
@@ -1082,7 +1385,8 @@
                     }
 
                     log('skin', skinIdx, 'for mesh', meshes[nodes[meshNodeIdx].mesh].name,
-                        '→', jointCount, 'joints,', animatedCount, 'animated');
+                        '→', jointCount, 'joints,', animatedCount, 'animated,',
+                        tracks.length, 'clip(s)');
                 } else {
                     var live = liveSnap && liveSnap[mIdx];
                     if (live && live.palette) {
@@ -1099,10 +1403,16 @@
                 }
             });
 
-            if (allChannels.length) {
-                var ml = document.getElementsByClassName('model-name__label')[0];
-                var an = ml ? ml.textContent.trim().replace(/\.+$/, '') : 'model';
-                animations = [{ name: an + '_anim', samplers: allSamplers, channels: allChannels }];
+            if (tracks.length) {
+                var animList = [];
+                tracks.forEach(function (tr) {
+                    if (tr.channels.length) {
+                        animList.push({ name: tr.name, samplers: tr.samplers, channels: tr.channels });
+                        log('animation "' + tr.name + '": ' + tr.channels.length + ' channels, '
+                            + tr.times.length + ' frames');
+                    }
+                });
+                if (animList.length) animations = animList;
             }
 
             // Scene root with YUP
@@ -1146,7 +1456,8 @@
             log('built scene: nodes=' + nodes.length,
                 'meshes=' + meshes.length,
                 'skins=' + gltfSkins.length,
-                'animFrames=' + (animations ? times.length : 0));
+                'animClips=' + (animations ? animations.length : 0),
+                'animFrames=' + (animations ? tracks[0].times.length : 0));
 
             var jsonStr = JSON.stringify(gltf);
             var jsonBytes = new TextEncoder().encode(jsonStr);
