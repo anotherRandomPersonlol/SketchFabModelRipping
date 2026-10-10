@@ -2,14 +2,14 @@
 // @name         Sketchfab Ripper V17
 // @version      17.0.0
 // @description  download Sketchfab models as GLB with skeleton, recorded animation, and PBR textures
-// @author       Risk + community
+// @author       anotherRandomPersonlol
 // @include      /^https?://(www\.)?sketchfab\.com/.*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js
 // @run-at       document-start
 // @grant        unsafeWindow
 // ==/UserScript==
-
+// Based off Risk's extraction
 (function () {
     'use strict';
     var window = unsafeWindow;
