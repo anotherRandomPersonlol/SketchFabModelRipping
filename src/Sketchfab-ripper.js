@@ -23,6 +23,8 @@
     window.clipDefs            = [];     // [{ index, uid, name, duration }]
     window.clipRecording       = false;
     window.clipCancel          = false;  // set by the CANCEL button during RECORD ALL CLIPS
+    window.staticPoseSnapshot  = null;   // snapshotFrame() taken with the viewer's "Static Pose" item selected
+    window.clipStaticIdx       = -1;     // list item index of "Static Pose" (the item that activates no clip)
     window.clipProgress        = '';
     window._anyAnchorsMatched  = false;
 
@@ -36,7 +38,8 @@
         MR_TEXTURE_FORMAT: 'jpeg',  // 'jpeg' (small) or 'png' (lossless)
         CLIP_FPS: 30,               // sample rate for multi-clip recording
         CLIP_SETTLE_FRAMES: 2,      // rAF ticks to wait after seeking to a clip's start
-        DEDUPE_STRICT_WORLD: false  // true: keep same-name meshes at different positions
+        DEDUPE_STRICT_WORLD: false, // true: keep same-name meshes at different positions
+        REST_POSE_SOURCE: 'clip0'   // joint rest pose: 'clip0' (first frame of first clip) or 'static' (viewer's Static Pose)
     };
     var CONFIG_KEY = 'ripper_config_v1';
 
@@ -531,6 +534,7 @@
         }
 
         function finish() {
+            window.clipStaticIdx = noClipIdx;
             var origIdx = (noClipIdx >= 0) ? noClipIdx : 0;
             for (var d = 0; d < defs.length; d++) {
                 if (defs[d].uid === origUid) { origIdx = defs[d].index; break; }
@@ -636,6 +640,45 @@
         });
     }
 
+    // Selects the viewer's "Static Pose" item and stores a palette snapshot. Used as
+    // the joint rest pose when CONFIG.REST_POSE_SOURCE === 'static'. cb() is always
+    // called; on any problem the snapshot stays null and export falls back to clip 0.
+    function captureStaticPose(mgr, cb) {
+        window.staticPoseSnapshot = null;
+        if (window.clipStaticIdx < 0) {
+            warn('static pose: no clip-less list item found, snapshot skipped');
+            cb();
+            return;
+        }
+        selectClipItem(window.clipStaticIdx, function (ok) {
+            var act = activeClipUids(mgr);
+            if (!ok || act.length) {
+                warn('static pose: selecting the item failed or left clips active (' + act.length + ')');
+                cb();
+                return;
+            }
+            // The viewer may skip updates while paused with no clip; let it run briefly.
+            if (mgr._pause) mgr.togglePause();
+            waitFrames(6, function () {
+                var snapA = snapshotFrame();
+                waitFrames(3, function () {
+                    var snapB = snapshotFrame(), moved = 0;
+                    for (var m = 0; m < snapA.meshes.length; m++) {
+                        var pa = snapA.meshes[m].palette, pb = snapB.meshes[m] && snapB.meshes[m].palette;
+                        if (!pa || !pb) continue;
+                        for (var i = 0; i < pa.length; i++) {
+                            if (Math.abs(pa[i] - pb[i]) > 1e-5) { moved++; break; }
+                        }
+                    }
+                    if (moved) warn('static pose: ' + moved + ' mesh palette(s) still changing; using the later snapshot');
+                    window.staticPoseSnapshot = snapB;
+                    log('static pose captured, meshes=' + snapB.meshes.length);
+                    cb();
+                });
+            });
+        });
+    }
+
     function setRecAllLabel(text) {
         var el = document.getElementById('recAllBtn');
         if (el) el.textContent = text;
@@ -710,7 +753,7 @@
                     endRecordAll(mgr, wasPaused, origIdx);
                 }
             }
-            nextClip();
+            captureStaticPose(mgr, function () { nextClip(); });
         });
         } catch (e) {
             err('record-all', e.message);
@@ -850,6 +893,28 @@
         });
         row3.appendChild(sel3);
         configDiv.appendChild(row3);
+
+        var row4 = document.createElement('div');
+        row4.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label4 = document.createElement('span');
+        label4.textContent = 'Rest pose:';
+        row4.appendChild(label4);
+        var sel4 = document.createElement('select');
+        sel4.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
+        [['clip0','Clip 1st frame'], ['static','Static Pose']].forEach(function (opt) {
+            var o = document.createElement('option');
+            o.value = opt[0];
+            o.textContent = opt[1];
+            if (CONFIG.REST_POSE_SOURCE === opt[0]) o.selected = true;
+            sel4.appendChild(o);
+        });
+        sel4.addEventListener('change', function () {
+            CONFIG.REST_POSE_SOURCE = sel4.value;
+            saveConfig();
+            log('rest pose source set to ' + sel4.value);
+        });
+        row4.appendChild(sel4);
+        configDiv.appendChild(row4);
 
         panel.appendChild(configDiv);
 
@@ -1473,14 +1538,39 @@
                     // Animation channels override this where present. Without
                     // it, a joint that has animation would collapse to identity
                     // (origin) when no animation is playing.
+                    // Rest pose source: the first frame of the first clip, or the viewer's
+                    // Static Pose snapshot (REST_POSE_SOURCE). Static falls back to the clip
+                    // frame when no usable snapshot exists (e.g. single-clip RECORD).
+                    var restPal = paletteRef.palette;
+                    var sm = window.staticPoseSnapshot && window.staticPoseSnapshot.meshes[mIdx];
+                    var staticOk = !!(sm && sm.palette && sm.palette.length >= paletteRef.palette.length);
+                    if (staticOk) {
+                        var diffJ = 0;
+                        for (var dj = 0; dj < jointCount; dj++) {
+                            for (var dk = 0; dk < 12; dk++) {
+                                var di = dj * 12 + dk;
+                                if (di >= paletteRef.palette.length) break;
+                                if (Math.abs(sm.palette[di] - paletteRef.palette[di]) > 1e-4) { diffJ++; break; }
+                            }
+                        }
+                        log('rest pose: mesh ' + mIdx + ' Static Pose vs clip frame 0 differ on ' +
+                            diffJ + '/' + jointCount + ' joints');
+                    }
+                    if (CONFIG.REST_POSE_SOURCE === 'static') {
+                        if (staticOk) restPal = sm.palette;
+                        else warn('rest pose: Static Pose snapshot unavailable for mesh ' + mIdx +
+                                  ' (run RECORD ALL CLIPS first); using clip frame 0');
+                    }
+                    log('rest pose source: ' + (restPal === paletteRef.palette ? 'clip frame 0' : 'Static Pose') +
+                        ' (mesh ' + mIdx + ')');
                     var restSkipped = 0;
                     for (var sj = 0; sj < jointCount; sj++) {
                         var jnIdx = jointNodeIndices[sj];
-                        if ((sj + 1) * 12 > paletteRef.palette.length || jnIdx === undefined) {
+                        if ((sj + 1) * 12 > restPal.length || jnIdx === undefined) {
                             restSkipped++;   // palette shorter than the joint list: leave node default
                             continue;
                         }
-                        var pal0 = expandMat3x4(paletteRef.palette, sj);
+                        var pal0 = expandMat3x4(restPal, sj);
                         var d0 = decomposeMat4(pal0);
                         nodes[jnIdx].translation = d0.translation;
                         nodes[jnIdx].rotation = d0.rotation;
