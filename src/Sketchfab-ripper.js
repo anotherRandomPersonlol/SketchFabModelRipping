@@ -325,6 +325,31 @@
             if (!name && !ssName && !pName) return;
             obj._faked = true;
             if (name === 'composer layer' || name === 'Ground - Geometry') return;
+            
+            // Dedupe: viewer re-instantiates meshes when WebGL contexts
+            // get recycled. A new obj has _faked = false again, so the
+            // basic guard doesn't catch it. Merge by name + vertex count.
+            // M_Patriot_Radar_Tires legitimately appears twice with
+            // DIFFERENT vertex counts, so this won't merge them.
+            var displayName = ssName || name || '';
+            var vcount = (obj._attributes && obj._attributes.Vertex &&
+                        obj._attributes.Vertex._elements)
+                        ? obj._attributes.Vertex._elements.length : 0;
+            for (var i = 0; i < window.allmodel.length; i++) {
+                var ex = window.allmodel[i];
+                if (!ex) continue;
+                var exName = (ex.stateset && ex.stateset._name) || ex._name || '';
+                if (exName !== displayName) continue;
+                var exVcount = (ex._attributes && ex._attributes.Vertex &&
+                                ex._attributes.Vertex._elements)
+                            ? ex._attributes.Vertex._elements.length : 0;
+                if (exVcount === vcount) {
+                    // Replace so the latest instance (with live palette)
+                    // is what we read from during recording.
+                    window.allmodel[i] = obj;
+                    return;
+                }
+            }
             window.allmodel.push(obj);
         } catch (e) { err('attachbody', e.message); }
     };
