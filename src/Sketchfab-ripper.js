@@ -1479,7 +1479,7 @@
                                        ? expandMat3x4(palJ, jn) : identityMat4();
                                 if (prev !== null) {
                                     for (var vv = 0; vv < 16; vv++) {
-                                        if (Math.abs(mJ[vv] - prev[vv]) > 1e-5) { movedHere = true; break; }
+                                        if (Math.abs(mJ[vv] - prev[vv]) > 1e-5 * Math.max(1, Math.abs(prev[vv]))) { movedHere = true; break; }
                                     }
                                 }
                                 if (prev === null) prev = mJ;   // slow drift is caught: always compare to frame 0
