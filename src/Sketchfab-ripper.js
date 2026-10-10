@@ -1043,6 +1043,7 @@
             vertex: attr.Vertex ? attr.Vertex._elements : [],
             normal: attr.Normal ? attr.Normal._elements : [],
             uv: uvAttr ? uvAttr._elements : [],
+            color: (attr.Color && attr.Color._elements) ? attr.Color._elements : [],
             joints: joints,
             weights: weights,
             primitives: list
@@ -1416,6 +1417,32 @@
                                 componentType: 5126, count: vc, type: 'VEC2' });
                     matHasUV[nm] = true;
                 }
+                // Vertex colors (Sketchfab "Color" attribute). Uint8 RGBA is written as a
+                // normalized UNSIGNED_BYTE VEC4; float RGBA as FLOAT VEC4; RGB is widened
+                // to float VEC3 (3-byte ubyte elements are not 4-byte aligned in glTF).
+                var aC = -1, colArr = mdl.color;
+                if (colArr && colArr.length) {
+                    var isU8 = (colArr instanceof Uint8Array || colArr instanceof Uint8ClampedArray);
+                    if (colArr.length === vc * 4) {
+                        aC = accs.length;
+                        if (isU8) {
+                            accs.push({ bufferView: addBV(new Uint8Array(colArr), 34962), componentType: 5121,
+                                        normalized: true, count: vc, type: 'VEC4' });
+                        } else {
+                            accs.push({ bufferView: addBV(new Float32Array(colArr), 34962), componentType: 5126,
+                                        count: vc, type: 'VEC4' });
+                        }
+                        log('vertex colors:', nm, isU8 ? '(RGBA8)' : '(RGBA float)');
+                    } else if (colArr.length === vc * 3) {
+                        var c3 = new Float32Array(colArr.length);
+                        for (var ci3 = 0; ci3 < c3.length; ci3++) c3[ci3] = isU8 ? colArr[ci3] / 255 : colArr[ci3];
+                        aC = accs.length;
+                        accs.push({ bufferView: addBV(c3, 34962), componentType: 5126, count: vc, type: 'VEC3' });
+                        log('vertex colors:', nm, '(RGB)');
+                    } else {
+                        warn('vertex colors: unexpected length', colArr.length, 'for', vc, 'vertices on', nm, ', skipped');
+                    }
+                }
                 if (mdl.primitives.length > 0 && mdl.primitives[0].indices) {
                     var ind = mdl.primitives[0].indices, mx = 0;
                     for (var k = 0; k < ind.length; k++) if (ind[k] > mx) mx = ind[k];
@@ -1447,6 +1474,7 @@
                 var prim = { attributes: { POSITION: accPos }, mode: primMode };
                 if (aN >= 0) prim.attributes.NORMAL = aN;
                 if (aU >= 0) prim.attributes.TEXCOORD_0 = aU;
+                if (aC >= 0) prim.attributes.COLOR_0 = aC;
                 if (aJ >= 0) prim.attributes.JOINTS_0 = aJ;
                 if (aW >= 0) prim.attributes.WEIGHTS_0 = aW;
                 if (aI >= 0) prim.indices = aI;

@@ -154,8 +154,13 @@ once after 12 s). With zero meshes in the panel, patch_4 did not fire.
   (`<mesh>_Alpha.png`, material `alphaMode: BLEND`), using the mask's
   luminance (black = see-through). Mask and color can share one metadata
   name, so they are matched by URL. Not yet checked in Blender.
-- No vertex colors (`COLOR_0` is never written; vertex-colored models
-  export untextured)
+- Vertex colors: the Sketchfab `Color` attribute (Uint8 RGBA) is written
+  as `COLOR_0` (normalized UNSIGNED_BYTE). Not yet verified in Blender.
+  Whether the values are sRGB or linear is unchecked. Constant base
+  color factors of texture-less materials are not read (always white).
+- Morph targets (`Vertex_0` / `Normal_0` attributes) are not exported.
+- Statesets: on some models (the Kalibr) the material and its textures sit
+  on the parent node named after the material, not on the mesh.
 - No EmitColor channel
 - Units are Sketchfab's, often cm. glTF expects metres.
 - No batch download, no progress UI, and no check for a 0-mesh export
