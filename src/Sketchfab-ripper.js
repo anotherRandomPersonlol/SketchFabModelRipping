@@ -35,7 +35,7 @@
         AUTO_RELOAD_ON_FAILURE: true,
         MR_TEXTURE_FORMAT: 'jpeg',  // 'jpeg' (small) or 'png' (lossless)
         CLIP_FPS: 30,               // sample rate for multi-clip recording
-        CLIP_SETTLE_FRAMES: 2,      // rAF ticks to wait after each seek
+        CLIP_SETTLE_FRAMES: 2,      // rAF ticks to wait after seeking to a clip's start
         DEDUPE_STRICT_WORLD: false  // true: keep same-name meshes at different positions
     };
     var CONFIG_KEY = 'ripper_config_v1';
@@ -494,18 +494,6 @@
         waitFrames(6, function () { cb(true); });
     }
 
-    function snapshotsDiffer(a, b) {
-        for (var m = 0; m < a.meshes.length; m++) {
-            var pa = a.meshes[m].palette;
-            var pb = b.meshes[m] && b.meshes[m].palette;
-            if (!pa || !pb) continue;
-            for (var i = 0; i < pa.length; i++) {
-                if (Math.abs(pa[i] - pb[i]) > 1e-5) return true;
-            }
-        }
-        return false;
-    }
-
     // Clicks every list item and reads which clip UID became active.
     // cb(defs, origIdx): defs = [{ index, uid, name, duration }];
     // origIdx = list item that was selected before discovery (restored at the end).
@@ -558,31 +546,6 @@
             });
         }
         next();
-    }
-
-    function recordClipSeek(mgr, def, base, cb) {
-        var fps = CONFIG.CLIP_FPS;
-        // Samples cover [0, duration). The closing frame at t = duration is a copy of
-        // frame 0 (the clip loops), so we never seek to the exact end: in "Play all"
-        // mode the viewer's end-of-clip handling may jump to the next clip there.
-        var n = Math.max(2, Math.round(def.duration * fps));
-        var frames = [], idx = 0;
-        function step() {
-            if (idx >= n) {
-                frames.push({ time: def.duration, meshes: frames[0].meshes });
-                cb(frames);
-                return;
-            }
-            var local = idx / fps;
-            mgr.setSeekTime(base + local);
-            waitFrames(CONFIG.CLIP_SETTLE_FRAMES, function () {
-                var snap = snapshotFrame();
-                frames.push({ time: local, meshes: snap.meshes });
-                idx++;
-                step();
-            });
-        }
-        step();
     }
 
     function recordClipRealtime(mgr, def, base, cb) {
@@ -663,10 +626,9 @@
             var inst = mgr._instanceAnimations[def.uid];
             var base = (inst && inst.start) || 0;
             if (!mgr._pause) mgr.togglePause();
-            // Real-time capture (seek-based sampling proved unreliable
-            // on this viewer; the single-clip path in v0.9.8 already
-            // uses real-time and works). This is the fallback that was
-            // already in the diffs, now made the primary path.
+            // Real-time capture only: seek-based sampling while paused updates the
+            // palette too sparsely on this viewer. Seek to the clip start, let it
+            // settle, then record while the clip plays.
             mgr.setSeekTime(base);
             waitFrames(CONFIG.CLIP_SETTLE_FRAMES, function () {
                 recordClipRealtime(mgr, def, base, cb);
