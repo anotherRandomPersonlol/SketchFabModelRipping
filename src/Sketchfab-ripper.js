@@ -1878,10 +1878,11 @@
                 accessors: accs,
                 bufferViews: bvs,
                 materials: mats,
-                images: images,
-                textures: textures,
                 buffers: [{ byteLength: off }]
             };
+            // glTF forbids empty arrays (validator: EMPTY_ENTITY), so texture-less models omit these.
+            if (images.length) gltf.images = images;
+            if (textures.length) gltf.textures = textures;
             if (gltfSkins.length) gltf.skins = gltfSkins;
             if (animations) gltf.animations = animations;
 
