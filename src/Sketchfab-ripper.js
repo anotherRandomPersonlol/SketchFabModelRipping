@@ -228,10 +228,31 @@
     // Each Texture has:
     //   _channels      = ['AlbedoPBR','GlossinessPBR'] etc.
     //   _packedTextures = { AlbedoPBR: {texture: {_image, _imageModel}}, ... }
+    // The mesh's own stateset normally carries the textures (Patriot). On some
+    // models (the Kalibr) the mesh has no stateset and its material sits on the
+    // parent node named after the material, so walk up to the first stateset
+    // that has texture slots. The mesh's own stateset always wins when it has them.
+    function textureStateSet(obj) {
+        function hasTex(ss) {
+            var ta = ss && ss._textureAttributeArrayList;
+            if (!ta || !ta.length) return false;
+            for (var i = 0; i < ta.length; i++) if (ta[i] && ta[i][0]) return true;
+            return false;
+        }
+        if (!obj) return null;
+        if (hasTex(obj.stateset)) return obj.stateset;
+        var cur = obj._parents && obj._parents[0], guard = 0;
+        while (cur && guard++ < 8) {
+            if (hasTex(cur.stateset)) return cur.stateset;
+            cur = cur._parents && cur._parents[0];
+        }
+        return obj.stateset || null;
+    }
+
     function getChannelTextureMap(obj) {
         var map = {};
         try {
-            var ss = obj && obj.stateset;
+            var ss = textureStateSet(obj);
             if (!ss) return map;
             var ta = ss._textureAttributeArrayList;
             if (!ta || !ta.length) return map;
