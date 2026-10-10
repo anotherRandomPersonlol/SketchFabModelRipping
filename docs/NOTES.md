@@ -65,3 +65,52 @@ much harder than the palette path we used.
   `if (saveimagecache2[url].dataURL) return`.
 - Sketchfab is an SPA. Clear `window.allmodel` when model-name
   label changes, or you accumulate duplicates.
+
+## Animation clips and rest pose (added Oct 2026)
+
+### 11. The animation manager
+The viewer's animation manager is the entry in some ancestor node's
+`_updateCallbacks` that owns `_instanceAnimations`. Walk
+`allmodel[0]._parents[0]` upward (it sits on the "Scene - RootModel"
+node). Useful members:
+- `_instanceAnimations`: clips keyed by UID (`name`, `duration`,
+  `start`, `channels`)
+- `_activeAnimationList`: running instances (`.name` is the UID)
+- `_startAnimations`: queued starts. `stopAllAnimation()` does NOT
+  clear it. Drain it (`= {}`) before switching clips.
+- `_pause`, `togglePause()`, `setSeekTime(t)`, `getSimulationTime()`
+
+### 12. Switching and recording clips
+- Switch clips by clicking `.animation-list .animation-item` (item 0
+  is "Static Pose" and activates no clip). `playAnimation()` fails:
+  the viewer's update gate returns early with no current clip.
+- The DOM item to UID mapping differs from key order. Measure it at
+  runtime by clicking each item and reading the active UID.
+- Seeking while paused (`setSeekTime`) updates the palette only
+  every 15-20 frames. Record in real time instead.
+- Frame times come from `getSimulationTime()` (wall-clock fallback).
+  The viewer defaults to "Play all" and can switch clips at the end of
+  one, so samples at or past `duration` are dropped. The loop is closed
+  with a copy of frame 0 at `t = duration`.
+- Only add a joint's channels to a clip where that joint moves.
+  Channels on every joint broke Blender NLA compositing (174 channels
+  per clip down to about 15-40).
+- Every joint needs a rest-pose TRS as its node default, or animated
+  joints collapse to the origin when no animation plays.
+- Keep the tab visible while recording. rAF stops in background tabs.
+
+### 13. Which pose is the rest pose?
+Not derivable from the data. "Static Pose" (the viewer's no-animation
+state) and the first frame of a clip can differ a lot. On the Patriot
+the launcher is raised in Static Pose, but the missile tubes are down
+in the Battery_FR_Holder clip. `CONFIG.REST_POSE_SOURCE` picks
+`'clip0'` (default) or `'static'`. The export logs how many joints
+differ between the two. The Static Pose snapshot is captured by RECORD
+ALL CLIPS, so use that before downloading with `'static'`.
+
+### 14. Duplicate meshes
+The viewer re-instantiates meshes when WebGL contexts are recycled.
+`attachbody` merges by display name + vertex count. A mismatch in world
+position is logged. `CONFIG.DEDUPE_STRICT_WORLD` keeps both, but animated
+parents also move meshes, so it is off by default.
+

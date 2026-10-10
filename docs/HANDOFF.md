@@ -1,5 +1,11 @@
 === SKETCHFAB MODEL EXPORTER — COMPLETE HANDOFF ===
 
+STATUS (Oct 2026): this document is the original v0.9.x handoff.
+Multi-clip recording and export is DONE (v17+). Its learnings are in
+docs/NOTES.md sections 11-14. Keep this file for the regression
+values and the fixed-gotchas list; ignore the version numbers and the
+"AFTER: Multiple animation clips" plan below.
+
 ## PROJECT OVERVIEW
 Tampermonkey userscript that exports Sketchfab models as GLB with
 skeleton, recorded animations, and captured textures. Currently
@@ -448,7 +454,10 @@ PART C — smaller file size (separate files instead of data: URIs)
   max via canvas. Saves 60-80% of size for typical Sketchfab
   uploads which are often 2048.
 
-### AFTER: Multiple animation clips  (2-4 hours, bigger refactor)
+### DONE: Multiple animation clips  (see docs/NOTES.md 11-14)
+(The plan below is kept for history. It was implemented differently:
+clips are discovered and switched by clicking the DOM list, and
+recorded in real time.)
 
 CURRENTLY:
   window.recordedFrames is a flat array of { time, meshes: [...] }

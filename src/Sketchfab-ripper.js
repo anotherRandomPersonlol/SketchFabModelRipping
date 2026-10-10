@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sketchfab Ripper V17
-// @version      17.0.0
+// @version      17.1.0
 // @description  download Sketchfab models as GLB with skeleton, recorded animation, and PBR textures
 // @author       anotherRandomPersonlol
 // @include      /^https?://(www\.)?sketchfab\.com/.*
