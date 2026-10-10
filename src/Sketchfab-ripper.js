@@ -593,18 +593,33 @@
             }
             return performance.now() / 1000 - wall0;
         }
+        // Samples cover [0, duration). The closing frame at t = duration is a copy
+        // of frame 0 (the clip loops). We never keep a sample taken at or past the
+        // end: in "Play all" mode the viewer may already have switched clips there.
+        function finish(why) {
+            if (frames.length && frames[frames.length - 1].time < def.duration - 1e-4) {
+                frames.push({ time: def.duration, meshes: frames[0].meshes });
+            }
+            if (why) warn('clip ' + def.name + ': ' + why + ', frames=' + frames.length);
+            cb(frames);
+        }
         function tick() {
             var t = clockNow();
+            if (t >= def.duration) { finish(null); return; }
+            var act = activeClipUids(mgr);
+            if (act.length !== 1 || act[0] !== def.uid) {
+                finish('active clip changed mid-recording at t=' + t.toFixed(3) +
+                       ' (active=' + act.join(',') + '), truncated');
+                return;
+            }
             // Keep times strictly increasing (a paused/stuck clock repeats values).
             if (t > lastT) {
                 frames.push({ time: t, meshes: snapshotFrame().meshes });
                 lastT = t;
             }
-            if (t >= def.duration) { cb(frames); return; }
             // Safety net: sim clock stuck, so end by wall time instead of looping forever.
             if (performance.now() / 1000 - wall0 > def.duration + 3) {
-                warn('clip ' + def.name + ': clock stalled at t=' + t.toFixed(3) + ', stopping');
-                cb(frames);
+                finish('clock stalled at t=' + t.toFixed(3));
                 return;
             }
             requestAnimationFrame(tick);
