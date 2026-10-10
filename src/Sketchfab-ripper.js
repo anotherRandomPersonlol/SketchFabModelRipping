@@ -22,6 +22,7 @@
     window.clips               = [];     // [{ name, uid, frames }]
     window.clipDefs            = [];     // [{ index, uid, name, duration }]
     window.clipRecording       = false;
+    window.clipCancel          = false;  // set by the CANCEL button during RECORD ALL CLIPS
     window.clipProgress        = '';
     window._anyAnchorsMatched  = false;
 
@@ -596,7 +597,10 @@
         // Samples cover [0, duration). The closing frame at t = duration is a copy
         // of frame 0 (the clip loops). We never keep a sample taken at or past the
         // end: in "Play all" mode the viewer may already have switched clips there.
+        var finished = false;
         function finish(why) {
+            if (finished) return;
+            finished = true;
             if (frames.length && frames[frames.length - 1].time < def.duration - 1e-4) {
                 frames.push({ time: def.duration, meshes: frames[0].meshes });
             }
@@ -604,6 +608,13 @@
             cb(frames);
         }
         function tick() {
+            try { tickBody(); } catch (e) {
+                err('clip ' + def.name + ' tick', e.message);
+                finish('error, truncated');
+            }
+        }
+        function tickBody() {
+            if (window.clipCancel) { finish('cancelled'); return; }
             var t = clockNow();
             if (t >= def.duration) { finish(null); return; }
             var act = activeClipUids(mgr);
@@ -656,13 +667,23 @@
     }
 
     function endRecordAll(mgr, wasPaused, origIdx) {
-        selectClipItem(origIdx, function () {
-            if (mgr._pause !== wasPaused) mgr.togglePause();
+        function reset() {
             window.clipRecording = false;
+            window.clipCancel = false;
             window.clipProgress = '';
             setRecAllLabel('RECORD ALL CLIPS');
             log('record-all finished, clips recorded: ' + window.clips.length);
-        });
+        }
+        try {
+            selectClipItem(origIdx, function () {
+                try { if (mgr._pause !== wasPaused) mgr.togglePause(); }
+                catch (e) { err('endRecordAll restore pause', e.message); }
+                reset();
+            });
+        } catch (e) {
+            err('endRecordAll', e.message);
+            reset();   // never leave clipRecording stuck on true
+        }
     }
 
     function recordAllClips() {
@@ -674,11 +695,15 @@
         if (!mgr) { warn('no animation manager found; use RECORD (single clip)'); return; }
         window.clipRecording = true;
         window.clips = [];
-        setRecAllLabel('WORKING...');
+        window.clipCancel = false;
+        setRecAllLabel('CANCEL');
         var wasPaused = mgr._pause;
         log('record-all started, clips in manager: ' + getClipCount() +
             ', fps ' + CONFIG.CLIP_FPS + ' (keep this tab visible)');
+        var safeOrigIdx = 0;
+        try {
         discoverAnimationClips(function (defs, origIdx) {
+            safeOrigIdx = origIdx;
             if (defs.length < 2) {
                 warn('only ' + defs.length + ' usable clip(s); single-clip path stays in use');
                 endRecordAll(mgr, wasPaused, origIdx);
@@ -686,11 +711,18 @@
             }
             var i = 0;
             function nextClip() {
-                if (i >= defs.length) { endRecordAll(mgr, wasPaused, origIdx); return; }
+                if (i >= defs.length || window.clipCancel) {
+                    if (window.clipCancel) warn('record-all cancelled, keeping ' + window.clips.length + ' recorded clip(s)');
+                    endRecordAll(mgr, wasPaused, origIdx);
+                    return;
+                }
                 var d = defs[i++];
                 window.clipProgress = i + '/' + defs.length;
+                try {
                 recordClip(mgr, d, function (frames) {
-                    if (frames && frames.length > 1) {
+                    if (window.clipCancel) {
+                        warn('clip discarded (cancelled): ' + d.name);
+                    } else if (frames && frames.length > 1) {
                         window.clips.push({ name: d.name, uid: d.uid, frames: frames });
                         log('clip recorded: ' + d.name + ' frames=' + frames.length);
                     } else {
@@ -698,9 +730,17 @@
                     }
                     nextClip();
                 });
+                } catch (e) {
+                    err('record-all clip ' + d.name, e.message);
+                    endRecordAll(mgr, wasPaused, origIdx);
+                }
             }
             nextClip();
         });
+        } catch (e) {
+            err('record-all', e.message);
+            endRecordAll(mgr, wasPaused, safeOrigIdx);
+        }
     }
 
     // ====================================================================
@@ -756,7 +796,15 @@
         btnAll.id = 'recAllBtn';
         btnAll.textContent = 'RECORD ALL CLIPS';
         btnAll.style.cssText = btnDL.style.cssText;
-        btnAll.addEventListener('click', function () { recordAllClips(); });
+        btnAll.addEventListener('click', function () {
+            if (window.clipRecording) {
+                window.clipCancel = true;
+                setRecAllLabel('CANCELLING...');
+                log('record-all: cancel requested');
+                return;
+            }
+            recordAllClips();
+        });
         panel.appendChild(btnAll);
 
         var status = document.createElement('div');
