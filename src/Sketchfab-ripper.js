@@ -27,7 +27,8 @@
 
     var CONFIG = {
         MAX_RECORD_SECONDS: 5,
-        AUTO_RELOAD_ON_FAILURE: true
+        AUTO_RELOAD_ON_FAILURE: true,
+        MR_TEXTURE_FORMAT: 'jpeg'  // 'jpeg' (small) or 'png' (lossless)
     };
     var CONFIG_KEY = 'ripper_config_v1';
 
@@ -471,6 +472,27 @@
         row2.appendChild(check2);
         configDiv.appendChild(row2);
 
+        var row3 = document.createElement('div');
+        row3.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label3 = document.createElement('span');
+        label3.textContent = 'MR format:';
+        row3.appendChild(label3);
+        var sel3 = document.createElement('select');
+        sel3.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
+        [['jpeg','JPEG (small)'], ['png','PNG (lossless)']].forEach(function (opt) {
+            var o = document.createElement('option');
+            o.value = opt[0];
+            o.textContent = opt[1];
+            if (CONFIG.MR_TEXTURE_FORMAT === opt[0]) o.selected = true;
+            sel3.appendChild(o);
+        });
+        sel3.addEventListener('change', function () {
+            CONFIG.MR_TEXTURE_FORMAT = sel3.value;
+            saveConfig();
+        });
+        row3.appendChild(sel3);
+        configDiv.appendChild(row3);
+
         panel.appendChild(configDiv);
 
         gear.addEventListener('click', function () {
@@ -644,8 +666,12 @@
             var oc = document.createElement('canvas');
             oc.width = W; oc.height = H;
             oc.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
+            var useJpeg = CONFIG.MR_TEXTURE_FORMAT !== 'png';
+            var mime = useJpeg ? 'image/jpeg' : 'image/png';
+            var ext  = useJpeg ? '.jpg' : '.png';
+            var q    = useJpeg ? 0.92 : undefined;
             return new Promise(function (res) {
-                oc.toBlob(function (b) { res(b); }, 'image/jpeg', 0.92);
+                oc.toBlob(function (b) { res({ blob: b, ext: ext }); }, mime, q);
             });
         });
     }
@@ -664,16 +690,16 @@
             if (seen[san]) return;
             seen[san] = true;
             jobs.push(
-                _mergeOneMR(cm).then(function (blob) {
-                    if (!blob) return;
-                    var fname = san + '_MR.jpg';
-                    objects[fname] = blob;
+                _mergeOneMR(cm).then(function (result) {
+                    if (!result || !result.blob) return;
+                    var fname = san + '_MR' + result.ext;
+                    objects[fname] = result.blob;
                     saveimagecache2['__merged_mr__:' + san] = {
                         name: san + '_MR',
-                        fileExt: '.jpg',
+                        fileExt: result.ext,
                         dataURL: 'merged'
                     };
-                    log('merged MR:', meshName, '→', fname, blob.size + 'B');
+                    log('merged MR:', meshName, '→', fname, result.blob.size + 'B');
                 }).catch(function (e) {
                     warn('MR merge failed for', meshName, e.message);
                 })
@@ -1122,8 +1148,6 @@
                 'skins=' + gltfSkins.length,
                 'animFrames=' + (animations ? times.length : 0));
 
-            // (material wiring debug removed in v17)
-
             var jsonStr = JSON.stringify(gltf);
             var jsonBytes = new TextEncoder().encode(jsonStr);
             var jAl = pad(jsonBytes.byteLength), jPad = jAl - jsonBytes.byteLength;
@@ -1280,115 +1304,4 @@
             setTimeout(addbtnfunc, 500);
         }
     })();
-    // ====================================================================
-    // Debug: verify MR sources are available for merging
-    // ====================================================================
-    window.probeMR = function () {
-        if (!window.allmodel.length) { log('no meshes'); return; }
-
-        // --- 1. What channels does each mesh expose? ---
-        window.allmodel.forEach(function (o, i) {
-            var nm = (o.stateset && o.stateset._name) || o._name || ('mesh_' + i);
-            var cm = getChannelTextureMap(o);
-            var keys = Object.keys(cm);
-            var mrKeys = [];
-            ['MetalnessPBR','RoughnessPBR','GlossinessPBR','EmitColor','EmissivePBR','Opacity']
-                .forEach(function (ch) { if (cm[ch]) mrKeys.push(ch); });
-            log('mesh[' + i + '] ' + nm + ' | all=' + keys.join(',')
-                + ' | MR/other=' + (mrKeys.join(',') || '(none)'));
-            for (var k = 0; k < mrKeys.length; k++) {
-                var ch = mrKeys[k];
-                log('    ' + ch + ' name=' + cm[ch].name
-                    + ' url=...' + (cm[ch].url || '').slice(-40));
-            }
-        });
-
-        // --- 2. Are the source blobs actually in `objects`? ---
-        function lookupBlob(sanitizedTarget) {
-            for (var key in saveimagecache2) {
-                if (!saveimagecache2.hasOwnProperty(key)) continue;
-                var t = saveimagecache2[key];
-                if (!t || !t.dataURL) continue;
-                if (sanitizeTextureName(t.name) === sanitizedTarget) {
-                    var ext = t.fileExt || '.png';
-                    var fname = t.name + ext;
-                    return {
-                        found: !!objects[fname],
-                        fname: fname,
-                        size: objects[fname] ? objects[fname].size : 0,
-                        type: objects[fname] ? objects[fname].type : '?'
-                    };
-                }
-            }
-            return null;
-        }
-
-        log('=== blob presence check ===');
-        window.allmodel.forEach(function (o, i) {
-            var cm = getChannelTextureMap(o);
-            ['MetalnessPBR','RoughnessPBR','GlossinessPBR'].forEach(function (ch) {
-                if (!cm[ch] || !cm[ch].name) return;
-                var san = sanitizeTextureName(cm[ch].name);
-                var r = lookupBlob(san);
-                log('mesh[' + i + '] ' + ch + ' "' + san + '" → '
-                    + (r ? (r.found ? ('OK ' + r.fname + ' ' + r.size + 'B ' + r.type)
-                                    : 'MISSING ' + r.fname)
-                         : 'no cache entry'));
-            });
-        });
-
-        // --- 3. Draw one source texture to canvas and sample a few pixels ---
-        //      (verifies we can read pixel data before writing the merge)
-        log('=== canvas readback test (first MetalnessPBR found) ===');
-        var testName = null;
-        window.allmodel.some(function (o) {
-            var cm = getChannelTextureMap(o);
-            if (cm.MetalnessPBR && cm.MetalnessPBR.name) {
-                testName = sanitizeTextureName(cm.MetalnessPBR.name);
-                return true;
-            }
-            return false;
-        });
-        if (!testName) {
-            log('  (no MetalnessPBR found — canvas test skipped)');
-            return;
-        }
-        var blobInfo = lookupBlob(testName);
-        if (!blobInfo || !blobInfo.found) {
-            log('  (MetalnessPBR blob missing — canvas test skipped)');
-            return;
-        }
-        var targetBlob = null;
-        for (var kk in saveimagecache2) {
-            if (!saveimagecache2.hasOwnProperty(kk)) continue;
-            var t2 = saveimagecache2[kk];
-            if (t2 && t2.dataURL &&
-                sanitizeTextureName(t2.name) === testName) {
-                targetBlob = objects[t2.name + (t2.fileExt || '.png')];
-                break;
-            }
-        }
-        if (!targetBlob) { log('  (blob lookup failed)'); return; }
-
-        createImageBitmap(targetBlob).then(function (bmp) {
-            log('  bitmap size:', bmp.width + 'x' + bmp.height);
-            var c = document.createElement('canvas');
-            c.width = bmp.width; c.height = bmp.height;
-            var ctx2 = c.getContext('2d');
-            ctx2.drawImage(bmp, 0, 0);
-            var id = ctx2.getImageData(0, 0, Math.min(4, bmp.width), Math.min(4, bmp.height));
-            // Sample the top-left 2 pixels to see if it's a grayscale
-            for (var p = 0; p < Math.min(4, id.data.length / 4); p++) {
-                var r0 = id.data[p*4+0], g0 = id.data[p*4+1],
-                    b0 = id.data[p*4+2], a0 = id.data[p*4+3];
-                log('    px[' + p + '] R=' + r0 + ' G=' + g0
-                    + ' B=' + b0 + ' A=' + a0
-                    + (r0 === g0 && g0 === b0 ? ' [grayscale OK]' : ' [COLORED — unexpected]'));
-            }
-            log('--- end probeMR ---');
-        }).catch(function (e) {
-            log('  createImageBitmap failed:', e.message);
-            log('--- end probeMR ---');
-        });
-    };
 })();
