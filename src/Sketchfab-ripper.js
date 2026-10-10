@@ -574,13 +574,42 @@
     function recordClipRealtime(mgr, def, base, cb) {
         mgr.setSeekTime(base);
         if (mgr._pause) mgr.togglePause();
-        var t0 = performance.now() / 1000, frames = [];
+        // Frame times come from the manager's own clock (getSimulationTime) so they
+        // match what the viewer is showing even if rAF drops frames or _timeFactor
+        // is not 1. Falls back to wall-clock time if that clock is unavailable.
+        var hasSimClock = typeof mgr.getSimulationTime === 'function';
+        var wall0 = performance.now() / 1000, sim0 = null, lastT = -1, frames = [];
+        var useSim = hasSimClock;
+        function clockNow() {
+            if (useSim) {
+                var s = mgr.getSimulationTime();
+                if (typeof s === 'number' && isFinite(s)) {
+                    if (sim0 === null) sim0 = s;
+                    return s - sim0;
+                }
+                warn('sim clock returned ' + s + ', falling back to wall clock');
+                useSim = false;
+                wall0 = performance.now() / 1000 - (lastT > 0 ? lastT : 0);
+            }
+            return performance.now() / 1000 - wall0;
+        }
         function tick() {
-            var t = performance.now() / 1000 - t0;
-            frames.push({ time: t, meshes: snapshotFrame().meshes });
+            var t = clockNow();
+            // Keep times strictly increasing (a paused/stuck clock repeats values).
+            if (t > lastT) {
+                frames.push({ time: t, meshes: snapshotFrame().meshes });
+                lastT = t;
+            }
             if (t >= def.duration) { cb(frames); return; }
+            // Safety net: sim clock stuck, so end by wall time instead of looping forever.
+            if (performance.now() / 1000 - wall0 > def.duration + 3) {
+                warn('clip ' + def.name + ': clock stalled at t=' + t.toFixed(3) + ', stopping');
+                cb(frames);
+                return;
+            }
             requestAnimationFrame(tick);
         }
+        log('clip clock: ' + (useSim ? 'manager simulation time' : 'wall clock') + ' (' + def.name + ')');
         requestAnimationFrame(tick);
     }
 
