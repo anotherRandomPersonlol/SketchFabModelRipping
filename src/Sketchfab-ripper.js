@@ -1498,15 +1498,21 @@
                     // Animation channels override this where present. Without
                     // it, a joint that has animation would collapse to identity
                     // (origin) when no animation is playing.
+                    var restSkipped = 0;
                     for (var sj = 0; sj < jointCount; sj++) {
+                        var jnIdx = jointNodeIndices[sj];
+                        if ((sj + 1) * 12 > paletteRef.palette.length || jnIdx === undefined) {
+                            restSkipped++;   // palette shorter than the joint list: leave node default
+                            continue;
+                        }
                         var pal0 = expandMat3x4(paletteRef.palette, sj);
                         var d0 = decomposeMat4(pal0);
-                        var jnIdx = jointNodeIndices[sj];
                         nodes[jnIdx].translation = d0.translation;
                         nodes[jnIdx].rotation = d0.rotation;
                         nodes[jnIdx].scale = d0.scale;
                     }
 
+                    if (restSkipped) warn('skin', skinIdx, ': rest pose skipped for', restSkipped, 'joint(s), palette too short');
                     log('skin', skinIdx, 'for mesh', meshes[nodes[meshNodeIdx].mesh].name,
                         '→', jointCount, 'joints,', animatedCount, 'animated,',
                         tracks.length, 'clip(s)');
