@@ -43,6 +43,7 @@
         REST_POSE_SOURCE: 'clip0',  // joint rest pose: 'clip0' (first frame of first clip) or 'static' (viewer's Static Pose)
         TEXTURE_WAIT_SECONDS: 12,   // max wait at export for textures the viewer is still loading (0 = never wait)
         VERTEX_COLOR_SRGB: true,    // true: treat Sketchfab Color bytes as sRGB and write linear COLOR_0 (matches the viewer's look)
+        FLAT_MR_FROM_VIEWER: true,  // true: metalness/roughness of texture-less materials as the viewer shows them; false: neutral metal 0 / rough 0.5
         DOUBLE_SIDED: true          // true: mark every material doubleSided (matches Sketchfab's default, Single Sided OFF); untick for single-sided export
     };
     var CONFIG_KEY = 'ripper_config_v1';
@@ -1040,6 +1041,23 @@
         row6.appendChild(check6);
         configDiv.appendChild(row6);
 
+        var row7 = document.createElement('div');
+        row7.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label7 = document.createElement('span');
+        label7.textContent = 'Flat metal/rough from viewer:';
+        label7.title = 'On: texture-less materials use the viewer values. Off: neutral metal 0, roughness 0.5.';
+        row7.appendChild(label7);
+        var check7 = document.createElement('input');
+        check7.type = 'checkbox';
+        check7.checked = !!CONFIG.FLAT_MR_FROM_VIEWER;
+        check7.addEventListener('change', function () {
+            CONFIG.FLAT_MR_FROM_VIEWER = check7.checked;
+            saveConfig();
+            log('flat metal/rough from viewer set to ' + check7.checked);
+        });
+        row7.appendChild(check7);
+        configDiv.appendChild(row7);
+
         var row3 = document.createElement('div');
         row3.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label3 = document.createElement('span');
@@ -1592,7 +1610,45 @@
                         warn('vertex colors: unexpected length', colArr.length, 'for', vc, 'vertices on', nm, ', skipped');
                     }
                 }
-                if (mdl.primitives.length > 0 && mdl.primitives[0].indices) {
+                // A mesh can carry several index primitives (a triangle list plus extra
+                // lists, strips or fans). Merge every triangle-type primitive into one
+                // TRIANGLES list so no faces go missing; other modes (points, lines) are
+                // only used when the mesh has no triangle primitive at all.
+                var mergedInd = null, mergedMode = 4;
+                if (mdl.primitives.length > 1) {
+                    var triParts = [], skippedP = 0, modeLog = [];
+                    mdl.primitives.forEach(function (pr) {
+                        var pm = pr.mode || 4, pi2 = pr.indices, tl = [], t2;
+                        modeLog.push(pm + 'x' + (pi2 ? pi2.length : 0));
+                        if (!pi2 || !pi2.length) return;
+                        if (pm === 4) {
+                            for (t2 = 0; t2 + 2 < pi2.length; t2 += 3) tl.push(pi2[t2], pi2[t2 + 1], pi2[t2 + 2]);
+                        } else if (pm === 5) {
+                            for (t2 = 0; t2 + 2 < pi2.length; t2++) {
+                                if (t2 % 2 === 0) tl.push(pi2[t2], pi2[t2 + 1], pi2[t2 + 2]);
+                                else tl.push(pi2[t2 + 1], pi2[t2], pi2[t2 + 2]);
+                            }
+                        } else if (pm === 6) {
+                            for (t2 = 1; t2 + 1 < pi2.length; t2++) tl.push(pi2[0], pi2[t2], pi2[t2 + 1]);
+                        } else { skippedP++; return; }
+                        triParts.push(tl);
+                    });
+                    log('primitives:', nm, mdl.primitives.length, '(mode x indices: ' + modeLog.join(', ') + ')');
+                    if (triParts.length) {
+                        mergedInd = [];
+                        triParts.forEach(function (tl) { for (var tq = 0; tq < tl.length; tq++) mergedInd.push(tl[tq]); });
+                        if (skippedP) warn('mesh', nm, ':', skippedP, 'non-triangle primitive(s) not exported');
+                    }
+                }
+                if (mergedInd) {
+                    var mxm = 0;
+                    for (var km = 0; km < mergedInd.length; km++) if (mergedInd[km] > mxm) mxm = mergedInd[km];
+                    var idxM = mxm <= 65535 ? new Uint16Array(mergedInd) : new Uint32Array(mergedInd);
+                    aI = accs.length;
+                    accs.push({ bufferView: addBV(idxM, 34963),
+                                componentType: idxM instanceof Uint32Array ? 5125 : 5123,
+                                count: mergedInd.length, type: 'SCALAR' });
+                } else if (mdl.primitives.length > 0 && mdl.primitives[0].indices) {
                     var ind = mdl.primitives[0].indices, mx = 0;
                     for (var k = 0; k < ind.length; k++) if (ind[k] > mx) mx = ind[k];
                     var idxD = mx <= 65535 ? new Uint16Array(ind) : new Uint32Array(ind);
@@ -1654,7 +1710,7 @@
                 }
                 if (morphTargets.length) log('morph targets:', nm, morphTargets.length);
 
-                var primMode = (mdl.primitives.length > 0 && mdl.primitives[0].mode) ? mdl.primitives[0].mode : 4;
+                var primMode = mergedInd ? 4 : ((mdl.primitives.length > 0 && mdl.primitives[0].mode) ? mdl.primitives[0].mode : 4);
                 var prim = { attributes: { POSITION: accPos }, mode: primMode };
                 if (aN >= 0) prim.attributes.NORMAL = aN;
                 if (aU >= 0) prim.attributes.TEXCOORD_0 = aU;
@@ -1786,10 +1842,10 @@
                 var mt = flat.MetalnessPBR, rg = flat.RoughnessPBR;
                 if (!pbr.metallicRoughnessTexture) {
                     if (mt && mt.enable && typeof mt.factor === 'number' && !texd('MetalnessPBR')) {
-                        pbr.metallicFactor = mt.factor; did.push('metalness');
+                        pbr.metallicFactor = CONFIG.FLAT_MR_FROM_VIEWER ? mt.factor : 0; did.push('metalness');
                     }
                     if (rg && rg.enable && typeof rg.factor === 'number' && !texd('RoughnessPBR')) {
-                        pbr.roughnessFactor = rg.factor; did.push('roughness');
+                        pbr.roughnessFactor = CONFIG.FLAT_MR_FROM_VIEWER ? rg.factor : 0.5; did.push('roughness');
                     }
                 }
                 var em = flat.EmitColor;
