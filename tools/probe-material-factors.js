@@ -31,13 +31,14 @@
             var ss = cur.stateset || cur._stateSet || null;
             if (!ss && typeof cur.getStateSet === 'function') { try { ss = cur.getStateSet(); } catch (e) {} }
             var arr = ss && ss._attributeArray;
-            var a0 = arr && arr[0];
+            function unwrap(w) { return w && (w._object || w.attribute || w._attribute || w); }
+            var a0 = unwrap(arr && arr[0]);
             if (a0 && a0._materialModel) {
                 found = true;
                 P('mesh[' + mi + '] ' + (mesh._name || '') + ' material "' + (a0._name || '') + '" (depth ' + d + ')');
                 seen = [];
                 dump(a0._materialModel.attributes, 0, 'attributes');
-                var m17 = arr[17];
+                var m17 = unwrap(arr[17]);
                 if (m17 && m17._diffuse) P('    osg diffuse = [' + Array.prototype.join.call(m17._diffuse, ',') + ']');
             }
             cur = cur._parents && cur._parents[0];
