@@ -43,6 +43,7 @@
         REST_POSE_SOURCE: 'clip0',  // joint rest pose: 'clip0' (first frame of first clip) or 'static' (viewer's Static Pose)
         TEXTURE_WAIT_SECONDS: 12,   // max wait at export for textures the viewer is still loading (0 = never wait)
         VERTEX_COLOR_SRGB: true,    // true: treat Sketchfab Color bytes as sRGB and write linear COLOR_0 (matches the viewer's look)
+        EXPORT_SCALE: 1,            // uniform scale on the scene root (0.01 for models authored in centimetres)
         FLAT_MR_FROM_VIEWER: true,  // true: metalness/roughness of texture-less materials as the viewer shows them; false: neutral metal 0 / rough 0.5
         DOUBLE_SIDED: true          // true: mark every material doubleSided (matches Sketchfab's default, Single Sided OFF); untick for single-sided export
     };
@@ -1057,6 +1058,29 @@
         });
         row7.appendChild(check7);
         configDiv.appendChild(row7);
+
+        var row8 = document.createElement('div');
+        row8.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label8 = document.createElement('span');
+        label8.textContent = 'Export scale:';
+        label8.title = 'Uniform scale of the whole model. 0.01 for models authored in centimetres.';
+        row8.appendChild(label8);
+        var input8 = document.createElement('input');
+        input8.type = 'number';
+        input8.step = 'any';
+        input8.min = '0.0001';
+        input8.value = CONFIG.EXPORT_SCALE;
+        input8.style.cssText = 'width:64px;background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
+        input8.addEventListener('change', function () {
+            var v = parseFloat(input8.value);
+            if (isNaN(v) || v <= 0) v = 1;
+            input8.value = v;
+            CONFIG.EXPORT_SCALE = v;
+            saveConfig();
+            log('export scale set to ' + v);
+        });
+        row8.appendChild(input8);
+        configDiv.appendChild(row8);
 
         var row3 = document.createElement('div');
         row3.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
@@ -2239,7 +2263,13 @@
 
             // Scene root with YUP
             var sceneRootIdx = nodes.length;
-            nodes.push({ name: 'scene_root', matrix: YUP.slice(), children: [] });
+            var rootMat = YUP.slice();
+            var expScale = (typeof CONFIG.EXPORT_SCALE === 'number' && CONFIG.EXPORT_SCALE > 0) ? CONFIG.EXPORT_SCALE : 1;
+            if (expScale !== 1) {
+                [0, 1, 2, 4, 5, 6, 8, 9, 10].forEach(function (ix) { rootMat[ix] *= expScale; });
+                log('export scale', expScale);
+            }
+            nodes.push({ name: 'scene_root', matrix: rootMat, children: [] });
 
             var naturalRoots = [];
             nodes.forEach(function (n, i) {

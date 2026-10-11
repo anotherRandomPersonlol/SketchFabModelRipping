@@ -214,5 +214,5 @@ Fix after first test on the ring: `getChannelTextureMap` can return placeholder 
 - The viewer triangulates quads, so exported meshes are triangles (inherent).
 - The ring export had 2 triangle holes: only `primitives[0]` was exported. All triangle-type primitives (lists, strips, fans) are now merged into one TRIANGLES index list; log line `primitives: <mesh> n (mode x indices ...)` shows what a mesh carries. Pending verification on the ring.
 - `FLAT_MR_FROM_VIEWER` setting: off writes neutral metal 0 / rough 0.5 for texture-less materials (the viewer's values differ from the artist's download).
-- Scale: not investigated yet; compare ring dimensions in Blender (export vs Sketchfab download).
+- Scale: the ring export is exactly 100x the artist download (0.506662 vs 0.005066 high); the model is in centimetres. `CONFIG.EXPORT_SCALE` (setting "Export scale", default 1, use 0.01 for such models) scales the scene_root matrix. No automatic unit detection: the viewer exposes no unit field that we found.
 - DeepSeek's idea (intercept the raw encrypted/binary model data) would be a separate project; the viewer decodes it into the same buffers we read, and may differ only in triangulation/UV availability.
