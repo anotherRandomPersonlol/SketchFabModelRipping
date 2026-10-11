@@ -216,3 +216,12 @@ Fix after first test on the ring: `getChannelTextureMap` can return placeholder 
 - `FLAT_MR_FROM_VIEWER` setting: off writes neutral metal 0 / rough 0.5 for texture-less materials (the viewer's values differ from the artist's download).
 - Scale: the ring export is exactly 100x the artist download (0.506662 vs 0.005066 high); the model is in centimetres. `CONFIG.EXPORT_SCALE` (setting "Export scale", default 1, use 0.01 for such models) scales the scene_root matrix. No automatic unit detection: the viewer exposes no unit field that we found.
 - DeepSeek's idea (intercept the raw encrypted/binary model data) would be a separate project; the viewer decodes it into the same buffers we read, and may differ only in triangulation/UV availability.
+
+## Fixes from the anime girl / tree / neon sign tests
+- Zero-weight joints: any joint slot with weight 0 now points at joint 0 (validator ACCESSOR_JOINTS_USED_ZERO_WEIGHT, 38k warnings).
+- Normals are normalised on export (tree normals had length ~4.8 from instance scale); morph normal deltas use the normalised data.
+- Every mesh goes through the triangle conversion (lists, strips, fans merged into TRIANGLES) and degenerate triangles (repeated index, strip joins) are dropped, which removes the long zero-area edges seen in Blender on the Patriot and others.
+- Emissive texture: `emissiveFactor` was left at the glTF default 0, which hides the texture; it is now [f,f,f] with f = EmitColor factor clamped to 0..1.
+- Flat values: texture presence now comes from the stateset `_channelMapping` (>= 0 = textured); a flat colour is never written over a textured channel. Each material logs `texture channels [...] mapping [...]` to debug lookups.
+- Opacity stored in the base colour file's alpha (log "uses one file for color and opacity"): material gets alphaMode MASK (cutoff 0.5) or BLEND depending on the viewer's Opacity `type`.
+- Open: anime girl base colour textures were not attached to materials (flat colours showed); needs the new `texture channels` log lines.

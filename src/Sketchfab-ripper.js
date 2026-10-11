@@ -272,6 +272,8 @@
                     var at = ch[k] && ch[k].attributes;
                     if (at) out[k] = at;
                 }
+                // Which channels have a texture: the stateset's channel mapping (>= 0 = texture unit).
+                out.__map = a0._channelMapping || null;
                 return out;
             }
             cur = cur._parents && cur._parents[0];
@@ -437,6 +439,17 @@
             if (m) n = Math.max(n, parseInt(m[1], 10) + 1);
         }
         return n;
+    }
+
+    function unitNormals(a) {
+        var o = new Float32Array(a.length), i, x, y, z, l;
+        for (i = 0; i + 2 < a.length; i += 3) {
+            x = a[i]; y = a[i + 1]; z = a[i + 2];
+            l = Math.sqrt(x * x + y * y + z * z);
+            if (l > 1e-12) { o[i] = x / l; o[i + 1] = y / l; o[i + 2] = z / l; }
+            else { o[i] = 0; o[i + 1] = 1; o[i + 2] = 0; }
+        }
+        return o;
     }
 
     function snapshotFrame() {
@@ -1416,7 +1429,10 @@
         });
     }
 
+    var _opacityOneFile = {};   // sanitized mesh name -> true when opacity lives in the base color file's alpha
+
     function mergeOpacityTextures() {
+        _opacityOneFile = {};
         var jobs = [];
         var seen = {};
         window.allmodel.forEach(function (obj, i) {
@@ -1428,6 +1444,7 @@
             if (seen[san]) return;
             seen[san] = true;
             if (normalizeUrl(cm.Opacity.url) === normalizeUrl(cm.AlbedoPBR.url)) {
+                _opacityOneFile[san] = true;
                 log('opacity merge: ' + meshName + ' uses one file for color and opacity, skipped');
                 return;
             }
@@ -1580,6 +1597,8 @@
 
                 var aN = -1, aU = -1, aI = -1, aJ = -1, aW = -1;
                 if (mdl.normal.length) {
+                    // Some meshes carry normals scaled by their instance transform; glTF needs unit length.
+                    mdl.normal = unitNormals(mdl.normal);
                     aN = accs.length;
                     accs.push({ bufferView: addBV(new Float32Array(mdl.normal), 34962),
                                 componentType: 5126, count: vc, type: 'VEC3' });
@@ -1639,25 +1658,28 @@
                 // TRIANGLES list so no faces go missing; other modes (points, lines) are
                 // only used when the mesh has no triangle primitive at all.
                 var mergedInd = null, mergedMode = 4;
-                if (mdl.primitives.length > 1) {
+                if (mdl.primitives.length > 0) {
                     var triParts = [], skippedP = 0, modeLog = [];
                     mdl.primitives.forEach(function (pr) {
                         var pm = pr.mode || 4, pi2 = pr.indices, tl = [], t2;
                         modeLog.push(pm + 'x' + (pi2 ? pi2.length : 0));
                         if (!pi2 || !pi2.length) return;
+                        // Degenerate triangles (repeated index) are strip joins; drop them so
+                        // Blender does not show long zero-area edges between distant vertices.
+                        function addTri(a, b, c) { if (a !== b && b !== c && a !== c) tl.push(a, b, c); }
                         if (pm === 4) {
-                            for (t2 = 0; t2 + 2 < pi2.length; t2 += 3) tl.push(pi2[t2], pi2[t2 + 1], pi2[t2 + 2]);
+                            for (t2 = 0; t2 + 2 < pi2.length; t2 += 3) addTri(pi2[t2], pi2[t2 + 1], pi2[t2 + 2]);
                         } else if (pm === 5) {
                             for (t2 = 0; t2 + 2 < pi2.length; t2++) {
-                                if (t2 % 2 === 0) tl.push(pi2[t2], pi2[t2 + 1], pi2[t2 + 2]);
-                                else tl.push(pi2[t2 + 1], pi2[t2], pi2[t2 + 2]);
+                                if (t2 % 2 === 0) addTri(pi2[t2], pi2[t2 + 1], pi2[t2 + 2]);
+                                else addTri(pi2[t2 + 1], pi2[t2], pi2[t2 + 2]);
                             }
                         } else if (pm === 6) {
-                            for (t2 = 1; t2 + 1 < pi2.length; t2++) tl.push(pi2[0], pi2[t2], pi2[t2 + 1]);
+                            for (t2 = 1; t2 + 1 < pi2.length; t2++) addTri(pi2[0], pi2[t2], pi2[t2 + 1]);
                         } else { skippedP++; return; }
                         triParts.push(tl);
                     });
-                    log('primitives:', nm, mdl.primitives.length, '(mode x indices: ' + modeLog.join(', ') + ')');
+                    if (mdl.primitives.length > 1 || (mdl.primitives[0] && mdl.primitives[0].mode === 5)) log('primitives:', nm, mdl.primitives.length, '(mode x indices: ' + modeLog.join(', ') + ')');
                     if (triParts.length) {
                         mergedInd = [];
                         triParts.forEach(function (tl) { for (var tq = 0; tq < tl.length; tq++) mergedInd.push(tl[tq]); });
@@ -1688,6 +1710,9 @@
                     var mj = 0;
                     for (var jj = 0; jj < mdl.joints.length; jj++) if (mdl.joints[jj] > mj) mj = mdl.joints[jj];
                     var jD = mj <= 255 ? new Uint8Array(mdl.joints) : new Uint16Array(mdl.joints);
+                    // A joint index used with weight 0 is invalid in glTF (validator
+                    // ACCESSOR_JOINTS_USED_ZERO_WEIGHT): point such slots at joint 0.
+                    for (var zj = 0; zj < jD.length; zj++) if (!(mdl.weights[zj] > 0)) jD[zj] = 0;
                     aJ = accs.length;
                     accs.push({ bufferView: addBV(jD, 34962),
                                 componentType: mj <= 255 ? 5121 : 5123,
@@ -1725,6 +1750,7 @@
                                 type: 'VEC3', min: dMin, max: dMax });
                     var tn = morphEls(mAttr['Normal_' + mk]);
                     if (tn && mdl.normal.length && tn.length === mdl.normal.length) {
+                        tn = unitNormals(tn);
                         var dn = new Float32Array(tn.length);
                         for (var dni = 0; dni < tn.length; dni++) dn[dni] = tn[dni] - mdl.normal[dni];
                         tgt.NORMAL = accs.length;
@@ -1789,13 +1815,19 @@
                 return undefined;
             }
 
+            function flatEm(fl) {
+                var e = fl && fl.EmitColor;
+                var f = (e && typeof e.factor === 'number') ? e.factor : 1;
+                return Math.max(0, Math.min(1, f));
+            }
+
             if (textures.length) {
                 mats.forEach(function (m, mi) {
                     if (!matHasUV[m.name]) return;
                     var chan = matsChannelInfo[mi] || {};
                     var assigned = false;
 
-                    var albedo = chan.AlbedoPBR || chan.DiffusePBR || chan.BaseColorPBR;
+                    var albedo = chan.AlbedoPBR || chan.DiffusePBR || chan.BaseColorPBR || chan.DiffuseColor;
                     var ai = findTexIdx(albedo);
                     if (ai !== undefined) {
                         m.pbrMetallicRoughness.baseColorTexture = { index: ai };
@@ -1820,6 +1852,9 @@
                     var ei = findTexIdx(em);
                     if (ei !== undefined) {
                         m.emissiveTexture = { index: ei };
+                        // glTF multiplies the texture by emissiveFactor (default 0 = no emission).
+                        var emF = flatEm(matsFlat[mi]);
+                        m.emissiveFactor = [emF, emF, emF];
                         assigned = true;
                     }
 
@@ -1856,9 +1891,19 @@
                 var flat = matsFlat[mi], chan = matsChannelInfo[mi] || {}, pbr = m.pbrMetallicRoughness;
                 if (!flat) return;
                 var did = [];
-                function texd(n) { return !!(chan[n] && (chan[n].url || chan[n].name)); }
+                var cmap = flat.__map;
+                function texd(n) {
+                    if (cmap && typeof cmap[n] === 'number') return cmap[n] >= 0;
+                    return !!(chan[n] && (chan[n].url || chan[n].name));
+                }
+                var chKeys = [];
+                for (var chk in chan) if (chan.hasOwnProperty(chk) && (chan[chk].url || chan[chk].name)) chKeys.push(chk);
+                var mapKeys = [];
+                if (cmap) for (var mpk in cmap) if (cmap.hasOwnProperty(mpk) && cmap[mpk] >= 0) mapKeys.push(mpk + '=' + cmap[mpk]);
+                log('material ' + m.name + ': texture channels [' + chKeys.join(',') + '] mapping [' + mapKeys.join(',') + ']' +
+                    (pbr.baseColorTexture ? ' baseColorTexture set' : ' no baseColorTexture'));
                 var alb = flat.AlbedoPBR;
-                if (alb && alb.enable && alb.color && !pbr.baseColorTexture) {
+                if (alb && alb.enable && alb.color && !pbr.baseColorTexture && !texd('AlbedoPBR') && !texd('DiffusePBR')) {
                     var af = (typeof alb.factor === 'number') ? alb.factor : 1;
                     pbr.baseColorFactor = [alb.color[0] * af, alb.color[1] * af, alb.color[2] * af, 1];
                     did.push('base color');
@@ -1871,6 +1916,13 @@
                     if (rg && rg.enable && typeof rg.factor === 'number' && !texd('RoughnessPBR')) {
                         pbr.roughnessFactor = CONFIG.FLAT_MR_FROM_VIEWER ? rg.factor : 0.5; did.push('roughness');
                     }
+                }
+                var op = flat.Opacity;
+                if (op && op.enable && pbr.baseColorTexture && !m.alphaMode && _opacityOneFile[sanitizeTextureName(m.name)]) {
+                    var isBlend = /blend/i.test(String(op.type || ''));
+                    m.alphaMode = isBlend ? 'BLEND' : 'MASK';
+                    if (!isBlend) m.alphaCutoff = 0.5;
+                    did.push('opacity ' + m.alphaMode + ' (' + op.type + ')');
                 }
                 var em = flat.EmitColor;
                 if (em && em.enable && em.color && !m.emissiveTexture && !texd('EmitColor')) {
