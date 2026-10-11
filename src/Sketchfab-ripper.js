@@ -1776,23 +1776,24 @@
                 var flat = matsFlat[mi], chan = matsChannelInfo[mi] || {}, pbr = m.pbrMetallicRoughness;
                 if (!flat) return;
                 var did = [];
+                function texd(n) { return !!(chan[n] && (chan[n].url || chan[n].name)); }
                 var alb = flat.AlbedoPBR;
-                if (alb && alb.enable && alb.color && !pbr.baseColorTexture && !(chan.AlbedoPBR || chan.DiffusePBR)) {
+                if (alb && alb.enable && alb.color && !pbr.baseColorTexture) {
                     var af = (typeof alb.factor === 'number') ? alb.factor : 1;
                     pbr.baseColorFactor = [alb.color[0] * af, alb.color[1] * af, alb.color[2] * af, 1];
                     did.push('base color');
                 }
                 var mt = flat.MetalnessPBR, rg = flat.RoughnessPBR;
                 if (!pbr.metallicRoughnessTexture) {
-                    if (mt && mt.enable && typeof mt.factor === 'number' && !chan.MetalnessPBR) {
+                    if (mt && mt.enable && typeof mt.factor === 'number' && !texd('MetalnessPBR')) {
                         pbr.metallicFactor = mt.factor; did.push('metalness');
                     }
-                    if (rg && rg.enable && typeof rg.factor === 'number' && !chan.RoughnessPBR) {
+                    if (rg && rg.enable && typeof rg.factor === 'number' && !texd('RoughnessPBR')) {
                         pbr.roughnessFactor = rg.factor; did.push('roughness');
                     }
                 }
                 var em = flat.EmitColor;
-                if (em && em.enable && em.color && !m.emissiveTexture && !chan.EmitColor) {
+                if (em && em.enable && em.color && !m.emissiveTexture && !texd('EmitColor')) {
                     var ef = (typeof em.factor === 'number') ? em.factor : 1;
                     var ev = [em.color[0] * ef, em.color[1] * ef, em.color[2] * ef];
                     if (ev[0] > 0 || ev[1] > 0 || ev[2] > 0) { m.emissiveFactor = ev; did.push('emission'); }
