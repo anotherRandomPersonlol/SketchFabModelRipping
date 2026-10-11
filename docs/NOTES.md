@@ -198,3 +198,6 @@ Sections are separated with `// ====`.
 
 ## Auto single-clip record
 RECORD with exactly one active clip restarts it and records one full loop (0..duration) automatically, reusing `recordClipRealtime`; STOP keeps the partial frames. With no manager or no active clip it falls back to the manual timer (`MAX_RECORD_SECONDS`). RECORD ALL CLIPS is greyed out when the manager has fewer than 2 clips (polled every 2 s). Verified on the vertex-colour light ball: morph targets, node translation and morph weight animation all export correctly (validator clean).
+
+## Double sided
+Sketchfab's "Single Sided" is OFF by default (both sides rendered), so `CONFIG.DOUBLE_SIDED` now defaults to true (settings checkbox "Double sided" to turn off). Cull-mode probe (`tools/probe-cullmode.js`) showed identical stateset slots (all `_value=1`) on the light ball and Kalibr with Single Sided OFF; the ON state was never captured, so there is no per-model auto-detection. Saved settings (localStorage `ripper_config_v1`) override the default: users who saved config earlier must tick the box once.

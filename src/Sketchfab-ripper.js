@@ -42,7 +42,7 @@
         DEDUPE_STRICT_WORLD: false, // true: keep same-name meshes at different positions
         REST_POSE_SOURCE: 'clip0',  // joint rest pose: 'clip0' (first frame of first clip) or 'static' (viewer's Static Pose)
         TEXTURE_WAIT_SECONDS: 12,   // max wait at export for textures the viewer is still loading (0 = never wait)
-        DOUBLE_SIDED: false         // true: mark every material doubleSided (the viewer's "Single Sided" can be off)
+        DOUBLE_SIDED: true          // true: mark every material doubleSided (matches Sketchfab's default, Single Sided OFF); untick for single-sided export
     };
     var CONFIG_KEY = 'ripper_config_v1';
 
