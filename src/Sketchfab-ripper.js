@@ -252,6 +252,31 @@
         return obj.stateset || null;
     }
 
+    // Sketchfab keeps each material's flat channel values in a material model:
+    // stateset._attributeArray[0]._materialModel.attributes.channels.<Name>.attributes
+    // ({ enable, factor, color }). The stateset can sit on an ancestor of the mesh.
+    function getMaterialChannels(obj) {
+        function unwrap(w) { return w && (w._object || w.attribute || w._attribute || w); }
+        var cur = obj, guard = 0;
+        while (cur && guard++ < 8) {
+            var ss = cur.stateset || cur._stateSet || null;
+            var a0 = unwrap(ss && ss._attributeArray && ss._attributeArray[0]);
+            var mm = a0 && a0._materialModel;
+            var ch = mm && mm.attributes && mm.attributes.channels;
+            if (ch) {
+                var out = {};
+                for (var k in ch) {
+                    if (!ch.hasOwnProperty(k)) continue;
+                    var at = ch[k] && ch[k].attributes;
+                    if (at) out[k] = at;
+                }
+                return out;
+            }
+            cur = cur._parents && cur._parents[0];
+        }
+        return null;
+    }
+
     function getChannelTextureMap(obj) {
         var map = {};
         try {
@@ -1470,6 +1495,7 @@
 
             var meshes = [], accs = [], bvs = [], mats = [];
             var matsChannelInfo = {}; // mi -> { channelName: {url, name} }
+            var matsFlat = {};        // mi -> { channelName: {enable, factor, color} } from the material model
             var binChunks = [], off = 0;   // Uint8Array chunks, joined once at the end
             var matHasUV = {};
             var meshHasSkinning = {};
@@ -1645,6 +1671,7 @@
                     mats.push({ name: nm, pbrMetallicRoughness: {
                         baseColorFactor: [1,1,1,1], metallicFactor: 1, roughnessFactor: 1 } });
                     matsChannelInfo[mi] = getChannelTextureMap(obj);
+                    matsFlat[mi] = getMaterialChannels(obj);
                 }
                 prim.material = mi;
 
@@ -1741,6 +1768,37 @@
                     }
                 });
             }
+
+            // Flat material values for channels without a texture (texture-less models): base
+            // color, metalness, roughness, emission. Textured channels keep factor 1 so the
+            // texture alone decides, as before.
+            mats.forEach(function (m, mi) {
+                var flat = matsFlat[mi], chan = matsChannelInfo[mi] || {}, pbr = m.pbrMetallicRoughness;
+                if (!flat) return;
+                var did = [];
+                var alb = flat.AlbedoPBR;
+                if (alb && alb.enable && alb.color && !pbr.baseColorTexture && !(chan.AlbedoPBR || chan.DiffusePBR)) {
+                    var af = (typeof alb.factor === 'number') ? alb.factor : 1;
+                    pbr.baseColorFactor = [alb.color[0] * af, alb.color[1] * af, alb.color[2] * af, 1];
+                    did.push('base color');
+                }
+                var mt = flat.MetalnessPBR, rg = flat.RoughnessPBR;
+                if (!pbr.metallicRoughnessTexture) {
+                    if (mt && mt.enable && typeof mt.factor === 'number' && !chan.MetalnessPBR) {
+                        pbr.metallicFactor = mt.factor; did.push('metalness');
+                    }
+                    if (rg && rg.enable && typeof rg.factor === 'number' && !chan.RoughnessPBR) {
+                        pbr.roughnessFactor = rg.factor; did.push('roughness');
+                    }
+                }
+                var em = flat.EmitColor;
+                if (em && em.enable && em.color && !m.emissiveTexture && !chan.EmitColor) {
+                    var ef = (typeof em.factor === 'number') ? em.factor : 1;
+                    var ev = [em.color[0] * ef, em.color[1] * ef, em.color[2] * ef];
+                    if (ev[0] > 0 || ev[1] > 0 || ev[2] > 0) { m.emissiveFactor = ev; did.push('emission'); }
+                }
+                if (did.length) log('material ' + m.name + ': flat values from material model (' + did.join(', ') + ')');
+            });
 
             // Sketchfab can render a model two-sided (Inspector: Single Sided OFF), which glTF
             // expresses per material. We cannot read that setting yet, so it is a manual option.
