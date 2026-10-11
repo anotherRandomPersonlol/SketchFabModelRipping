@@ -42,6 +42,7 @@
         DEDUPE_STRICT_WORLD: false, // true: keep same-name meshes at different positions
         REST_POSE_SOURCE: 'clip0',  // joint rest pose: 'clip0' (first frame of first clip) or 'static' (viewer's Static Pose)
         TEXTURE_WAIT_SECONDS: 12,   // max wait at export for textures the viewer is still loading (0 = never wait)
+        VERTEX_COLOR_SRGB: true,    // true: treat Sketchfab Color bytes as sRGB and write linear COLOR_0 (matches the viewer's look)
         DOUBLE_SIDED: true          // true: mark every material doubleSided (matches Sketchfab's default, Single Sided OFF); untick for single-sided export
     };
     var CONFIG_KEY = 'ripper_config_v1';
@@ -998,6 +999,22 @@
         row5.appendChild(check5);
         configDiv.appendChild(row5);
 
+        var row6 = document.createElement('div');
+        row6.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label6 = document.createElement('span');
+        label6.textContent = 'Vertex color sRGB>linear:';
+        row6.appendChild(label6);
+        var check6 = document.createElement('input');
+        check6.type = 'checkbox';
+        check6.checked = !!CONFIG.VERTEX_COLOR_SRGB;
+        check6.addEventListener('change', function () {
+            CONFIG.VERTEX_COLOR_SRGB = check6.checked;
+            saveConfig();
+            log('vertex color sRGB->linear set to ' + check6.checked);
+        });
+        row6.appendChild(check6);
+        configDiv.appendChild(row6);
+
         var row3 = document.createElement('div');
         row3.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label3 = document.createElement('span');
@@ -1519,7 +1536,9 @@
                 var aC = -1, colArr = mdl.color;
                 if (colArr && colArr.length) {
                     var isU8 = (colArr instanceof Uint8Array || colArr instanceof Uint8ClampedArray);
-                    if (colArr.length === vc * 4) {
+                    var conv = !!CONFIG.VERTEX_COLOR_SRGB;
+                    var cStride = (colArr.length === vc * 4) ? 4 : ((colArr.length === vc * 3) ? 3 : 0);
+                    if (cStride && !conv && cStride === 4) {
                         aC = accs.length;
                         if (isU8) {
                             accs.push({ bufferView: addBV(new Uint8Array(colArr), 34962), componentType: 5121,
@@ -1529,12 +1548,20 @@
                                         count: vc, type: 'VEC4' });
                         }
                         log('vertex colors:', nm, isU8 ? '(RGBA8)' : '(RGBA float)');
-                    } else if (colArr.length === vc * 3) {
-                        var c3 = new Float32Array(colArr.length);
-                        for (var ci3 = 0; ci3 < c3.length; ci3++) c3[ci3] = isU8 ? colArr[ci3] / 255 : colArr[ci3];
+                    } else if (cStride) {
+                        // Float output (RGB widened since 3-byte ubyte elements are not 4-byte
+                        // aligned). With VERTEX_COLOR_SRGB the RGB channels go sRGB -> linear.
+                        var cf = new Float32Array(colArr.length);
+                        for (var cfi = 0; cfi < cf.length; cfi++) {
+                            var cv = isU8 ? colArr[cfi] / 255 : colArr[cfi];
+                            if (conv && (cStride === 3 || cfi % 4 !== 3)) {
+                                cv = (cv <= 0.04045) ? cv / 12.92 : Math.pow((cv + 0.055) / 1.055, 2.4);
+                            }
+                            cf[cfi] = cv;
+                        }
                         aC = accs.length;
-                        accs.push({ bufferView: addBV(c3, 34962), componentType: 5126, count: vc, type: 'VEC3' });
-                        log('vertex colors:', nm, '(RGB)');
+                        accs.push({ bufferView: addBV(cf, 34962), componentType: 5126, count: vc, type: cStride === 4 ? 'VEC4' : 'VEC3' });
+                        log('vertex colors:', nm, cStride === 4 ? '(RGBA)' : '(RGB)', conv ? 'sRGB->linear' : 'as is');
                     } else {
                         warn('vertex colors: unexpected length', colArr.length, 'for', vc, 'vertices on', nm, ', skipped');
                     }

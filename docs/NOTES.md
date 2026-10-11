@@ -201,3 +201,6 @@ RECORD with exactly one active clip restarts it and records one full loop (0..du
 
 ## Double sided
 Sketchfab's "Single Sided" is OFF by default (both sides rendered), so `CONFIG.DOUBLE_SIDED` now defaults to true (settings checkbox "Double sided" to turn off). Cull-mode probe (`tools/probe-cullmode.js`) showed identical stateset slots (all `_value=1`) on the light ball and Kalibr with Single Sided OFF; the ON state was never captured, so there is no per-model auto-detection. Saved settings (localStorage `ripper_config_v1`) override the default: users who saved config earlier must tick the box once.
+
+## Vertex colour space
+Light ball `Color` bytes: gray ring 35,36,37 .. 91,93,96. In the Inspector's Vertex Color view the same ring reads about 56..93 (screenshot pixel picker), i.e. inside the byte range, so the viewer shows the bytes as is (sRGB, no gamma applied). glTF COLOR_0 is linear, so `CONFIG.VERTEX_COLOR_SRGB` (default true) converts RGB sRGB->linear and writes float COLOR_0, which makes glTF viewers look like Sketchfab. Untick the "Vertex color sRGB>linear" setting for raw bytes. Alpha is never converted. Pending visual confirmation.
