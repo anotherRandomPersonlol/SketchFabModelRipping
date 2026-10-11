@@ -24,10 +24,12 @@
             try { dump(o[k], depth + 1, path + '.' + k); } catch (e) {}
         }
     }
+    P('allmodel length = ' + (window.allmodel ? window.allmodel.length : 'undefined (run this in the viewer iframe console)'));
     (window.allmodel || []).forEach(function (mesh, mi) {
         var cur = mesh, d = 0, found = false;
         while (cur && d < 8 && !found) {
-            var ss = (typeof cur.getStateSet === 'function') ? cur.getStateSet() : cur.stateset;
+            var ss = cur.stateset || cur._stateSet || null;
+            if (!ss && typeof cur.getStateSet === 'function') { try { ss = cur.getStateSet(); } catch (e) {} }
             var arr = ss && ss._attributeArray;
             var a0 = arr && arr[0];
             if (a0 && a0._materialModel) {
@@ -41,6 +43,7 @@
             cur = cur._parents && cur._parents[0];
             d++;
         }
+        if (!found) P('mesh[' + mi + '] ' + (mesh._name || '') + ': no material model found in ' + d + ' levels');
     });
     window.__facProbe = out;
     P('read all: window.__facProbe.join("\\n")');
