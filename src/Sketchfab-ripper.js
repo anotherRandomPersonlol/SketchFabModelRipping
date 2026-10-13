@@ -1877,9 +1877,20 @@
                         log('material ' + m.name + ': alphaMode BLEND with merged opacity texture');
                     }
 
+                    (function () {
+                        var fl = matsFlat[mi], mp = fl && fl.__map, lost = [];
+                        if (mp) for (var mk2 in mp) {
+                            if (!mp.hasOwnProperty(mk2) || !(mp[mk2] >= 0) || mk2 === 'Inspector' || mk2 === 'Matcap') continue;
+                            var inf = chan[mk2];
+                            if (!inf || findTexIdx(inf) === undefined) lost.push(mk2);
+                        }
+                        if (lost.length) warn('material ' + m.name + ': channels with a texture in the viewer but not in the export: ' + lost.join(', '));
+                    })();
                     if (!assigned) {
-                        // fallback: keep old behaviour so nothing regresses
-                        m.pbrMetallicRoughness.baseColorTexture = { index: 0 };
+                        // No texture of this material was captured. Do not borrow texture 0
+                        // (an unrelated image); keep the plain material and say so.
+                        warn('material ' + m.name + ': no texture found in the capture pool, exported without textures'
+                             + (CONFIG.TEXTURE_WAIT_SECONDS ? '' : ' (texture wait is off)'));
                     }
                 });
             }
@@ -1923,6 +1934,9 @@
                     m.alphaMode = isBlend ? 'BLEND' : 'MASK';
                     if (!isBlend) m.alphaCutoff = 0.5;
                     did.push('opacity ' + m.alphaMode + ' (' + op.type + ')');
+                }
+                if (!pbr.metallicRoughnessTexture && mt && mt.enable === false && !texd('MetalnessPBR')) {
+                    pbr.metallicFactor = 0; did.push('metalness off');
                 }
                 var em = flat.EmitColor;
                 if (em && em.enable && em.color && !m.emissiveTexture && !texd('EmitColor')) {
@@ -2334,6 +2348,13 @@
             });
             naturalRoots.forEach(function (r) {
                 nodes[sceneRootIdx].children.push(r);
+            });
+
+            nodes.forEach(function (n, ni) {
+                if (ni === sceneRootIdx || !n.matrix) return;
+                var idm = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1], same = n.matrix.length === 16;
+                for (var im = 0; same && im < 16; im++) if (Math.abs(n.matrix[im] - idm[im]) > 1e-9) same = false;
+                if (same) delete n.matrix;   // validator NODE_MATRIX_DEFAULT
             });
 
             var rootNodes = [sceneRootIdx];

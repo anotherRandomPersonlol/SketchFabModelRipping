@@ -225,3 +225,10 @@ Fix after first test on the ring: `getChannelTextureMap` can return placeholder 
 - Flat values: texture presence now comes from the stateset `_channelMapping` (>= 0 = textured); a flat colour is never written over a textured channel. Each material logs `texture channels [...] mapping [...]` to debug lookups.
 - Opacity stored in the base colour file's alpha (log "uses one file for color and opacity"): material gets alphaMode MASK (cutoff 0.5) or BLEND depending on the viewer's Opacity `type`.
 - Open: anime girl base colour textures were not attached to materials (flat colours showed); needs the new `texture channels` log lines.
+
+## Round 3 (girl black, tree wrong texture, neon dark; tested on a slow laptop)
+- Removed the "no texture assigned -> use texture 0" fallback: it painted an unrelated image (ground noise) over the whole tree. A material with no captured texture now exports plain and logs `no texture found in the capture pool`.
+- New warning per material: `channels with a texture in the viewer but not in the export: ...` (stateset channel mapping says textured, lookup in the capture pool failed). Prime suspect on slow machines: textures not captured before export (TEXTURE_WAIT_SECONDS 12 may be too short).
+- Disabled MetalnessPBR channel without texture now writes metallicFactor 0 (glTF default 1 renders fully metallic = black); suspected cause of the black girl.
+- Identity node matrices are omitted (validator NODE_MATRIX_DEFAULT).
+- Unverified: neon emission, girl black cause. Need the `material ...` log lines from those exports.
