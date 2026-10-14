@@ -240,3 +240,14 @@ Cause: `onbeforescriptexecute` looped over all children of the target, so every 
 bundle executed repeatedly -> new GL contexts each time.
 Fix: handle only `e.script`, once per bundle URL (`patchedSrc`), mark our own injected scripts (`__ripperOwn`).
 Log `bundle already patched, dropping duplicate` means the guard fired.
+
+## Round 4 test results (tree, neon, girl)
+- Neon emission: confirmed working.
+- Anime girl black/blue: not a bug. A separate outline mesh needs Single Sided ON; with the default
+  double-sided export it covered the girl. Turn "Double sided" off in the panel for such models
+  (auto detection via cullFace still open, ON value never captured).
+- Tree transparency: leaves use the `AlphaMask` channel (separate image, albedo PNG has no alpha).
+  Now treated like Opacity: merged into albedo alpha, alphaMode MASK cutoff 0.5
+  (`_opacityKind`, `opacitySource`). Unused-texture validator info on textures 0 and 4 was these mask images.
+- Merged MR looks yellow: R=255 (unused occlusion slot), G=roughness, B=metal -> yellow means rough, non-metal. Expected.
+- Validator "requires tangent space" on materials with normal maps: info only (no TANGENT exported).

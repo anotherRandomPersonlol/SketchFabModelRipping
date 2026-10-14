@@ -1393,9 +1393,12 @@
         return objects[hit.name + (hit.fileExt || '.png')] || null;
     }
 
+    // Opacity comes either from the Opacity channel (blend) or the AlphaMask channel (cutout).
+    function opacitySource(cm) { return cm.Opacity || cm.AlphaMask || null; }
+
     function _mergeOneOpacity(cm) {
         var colorBlob = _blobForUrl(cm.AlbedoPBR.url);
-        var maskBlob = _blobForUrl(cm.Opacity.url);
+        var maskBlob = _blobForUrl(opacitySource(cm).url);
         if (!colorBlob || !maskBlob) {
             warn('opacity merge: missing source (color=' + !!colorBlob + ' mask=' + !!maskBlob + ')');
             return Promise.resolve(null);
@@ -1429,21 +1432,25 @@
         });
     }
 
+    var _opacityKind = {};      // sanitized mesh name -> 'opacity' | 'alphamask'
     var _opacityOneFile = {};   // sanitized mesh name -> true when opacity lives in the base color file's alpha
 
     function mergeOpacityTextures() {
         _opacityOneFile = {};
+        _opacityKind = {};
         var jobs = [];
         var seen = {};
         window.allmodel.forEach(function (obj, i) {
             var ss = obj.stateset;
             var meshName = obj._name || (ss && ss._name) || ('mesh_' + i);
             var cm = getChannelTextureMap(obj);
-            if (!cm.Opacity || !cm.AlbedoPBR) return;
+            var opSrc = opacitySource(cm);
+            if (!opSrc || !cm.AlbedoPBR) return;
             var san = sanitizeTextureName(meshName);
             if (seen[san]) return;
             seen[san] = true;
-            if (normalizeUrl(cm.Opacity.url) === normalizeUrl(cm.AlbedoPBR.url)) {
+            _opacityKind[san] = cm.Opacity ? 'opacity' : 'alphamask';
+            if (normalizeUrl(opSrc.url) === normalizeUrl(cm.AlbedoPBR.url)) {
                 _opacityOneFile[san] = true;
                 log('opacity merge: ' + meshName + ' uses one file for color and opacity, skipped');
                 return;
@@ -1872,9 +1879,13 @@
                     var alphaIdx = textureNameToIndex[sanitizeTextureName(m.name) + '_Alpha'];
                     if (alphaIdx !== undefined) {
                         m.pbrMetallicRoughness.baseColorTexture = { index: alphaIdx };
-                        m.alphaMode = 'BLEND';
+                        if (_opacityKind[sanitizeTextureName(m.name)] === 'alphamask') {
+                            m.alphaMode = 'MASK'; m.alphaCutoff = 0.5;
+                        } else {
+                            m.alphaMode = 'BLEND';
+                        }
                         assigned = true;
-                        log('material ' + m.name + ': alphaMode BLEND with merged opacity texture');
+                        log('material ' + m.name + ': alphaMode ' + m.alphaMode + ' with merged ' + (_opacityKind[sanitizeTextureName(m.name)] || 'opacity') + ' texture');
                     }
 
                     (function () {
@@ -1928,9 +1939,9 @@
                         pbr.roughnessFactor = CONFIG.FLAT_MR_FROM_VIEWER ? rg.factor : 0.5; did.push('roughness');
                     }
                 }
-                var op = flat.Opacity;
+                var op = flat.Opacity || flat.AlphaMask;
                 if (op && op.enable && pbr.baseColorTexture && !m.alphaMode && _opacityOneFile[sanitizeTextureName(m.name)]) {
-                    var isBlend = /blend/i.test(String(op.type || ''));
+                    var isBlend = !!flat.Opacity && /blend/i.test(String(op.type || ''));
                     m.alphaMode = isBlend ? 'BLEND' : 'MASK';
                     if (!isBlend) m.alphaCutoff = 0.5;
                     did.push('opacity ' + m.alphaMode + ' (' + op.type + ')');
