@@ -232,3 +232,11 @@ Fix after first test on the ring: `getChannelTextureMap` can return placeholder 
 - Disabled MetalnessPBR channel without texture now writes metallicFactor 0 (glTF default 1 renders fully metallic = black); suspected cause of the black girl.
 - Identity node matrices are omitted (validator NODE_MATRIX_DEFAULT).
 - Unverified: neon emission, girl black cause. Need the `material ...` log lines from those exports.
+
+## WebGL context / RAM blow-up (round 4)
+Symptom: "Too many active WebGL contexts" flood, Chrome ballooning to ~32 GB on Sketchfab with the script on.
+Cause: `onbeforescriptexecute` looped over all children of the target, so every script added to <head>
+(including our own patched copy) re-fetched, re-patched and re-appended every bundle script -> viewer
+bundle executed repeatedly -> new GL contexts each time.
+Fix: handle only `e.script`, once per bundle URL (`patchedSrc`), mark our own injected scripts (`__ripperOwn`).
+Log `bundle already patched, dropping duplicate` means the guard fired.

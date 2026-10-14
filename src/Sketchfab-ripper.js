@@ -2487,11 +2487,19 @@
         drawGeometry     : /(this\._stateCache\.drawGeometry\(this\._graphicContext,t\))/g,
     };
 
+    var patchedSrc = {};
+
     window.onbeforescriptexecute = function (e) {
-        Array.from(e.target.childNodes).forEach(function (node) {
+        // Only handle the script that triggered the event, and each bundle URL once.
+        // (Looping over all siblings re-executed the viewer bundle repeatedly and
+        // exhausted WebGL contexts / RAM.)
+        [e.script].forEach(function (node) {
             if (!node || node.tagName !== 'SCRIPT') return;
+            if (node.__ripperOwn) return;
             var src = node.src || '';
             if (src.indexOf('web/dist/') < 0 && src.indexOf('standaloneViewer') < 0) return;
+            if (patchedSrc[src]) { warn('bundle already patched, dropping duplicate:', src.split('/').pop()); e.preventDefault(); e.stopPropagation(); return; }
+            patchedSrc[src] = true;
 
             e.preventDefault();
             e.stopPropagation();
@@ -2531,6 +2539,7 @@
             }
 
             var s = document.createElement('script');
+            s.__ripperOwn = true;
             s.type = 'text/javascript';
             s.text = js;
             (document.head || document.getElementsByTagName('head')[0]).appendChild(s);
