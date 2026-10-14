@@ -251,3 +251,10 @@ Log `bundle already patched, dropping duplicate` means the guard fired.
   (`_opacityKind`, `opacitySource`). Unused-texture validator info on textures 0 and 4 was these mask images.
 - Merged MR looks yellow: R=255 (unused occlusion slot), G=roughness, B=metal -> yellow means rough, non-metal. Expected.
 - Validator "requires tangent space" on materials with normal maps: info only (no TANGENT exported).
+
+## Auto single sided (round 5, unverified)
+`getMaterialChannels` now returns `__cull` (= `_materialModel.attributes.cullFace`). Export logs
+`material X: cullFace=<v>` for every material; a non-zero value is treated as Single Sided ON and the material
+is NOT marked doubleSided (setting "Auto single sided", `DOUBLE_SIDED_AUTO`, default on). Needs confirming on the
+anime girl: the outline mesh should log a non-zero cullFace and the others 0. If the girl logs 0 everywhere, the flag
+lives somewhere else and needs a probe.

@@ -45,6 +45,7 @@
         VERTEX_COLOR_SRGB: true,    // true: treat Sketchfab Color bytes as sRGB and write linear COLOR_0 (matches the viewer's look)
         EXPORT_SCALE: 1,            // uniform scale on the scene root (0.01 for models authored in centimetres)
         FLAT_MR_FROM_VIEWER: true,  // true: metalness/roughness of texture-less materials as the viewer shows them; false: neutral metal 0 / rough 0.5
+        DOUBLE_SIDED_AUTO: true,    // true: follow the viewer's Single Sided flag per material (cullFace != 0 -> single sided); false: use DOUBLE_SIDED for all
         DOUBLE_SIDED: true          // true: mark every material doubleSided (matches Sketchfab's default, Single Sided OFF); untick for single-sided export
     };
     var CONFIG_KEY = 'ripper_config_v1';
@@ -274,6 +275,7 @@
                 }
                 // Which channels have a texture: the stateset's channel mapping (>= 0 = texture unit).
                 out.__map = a0._channelMapping || null;
+                out.__cull = mm.attributes.cullFace;   // 0 = Single Sided OFF; ON value to be confirmed from logs
                 return out;
             }
             cur = cur._parents && cur._parents[0];
@@ -1038,6 +1040,22 @@
         });
         row5.appendChild(check5);
         configDiv.appendChild(row5);
+
+        var row5b = document.createElement('div');
+        row5b.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label5b = document.createElement('span');
+        label5b.textContent = 'Auto single sided (viewer flag):';
+        row5b.appendChild(label5b);
+        var check5b = document.createElement('input');
+        check5b.type = 'checkbox';
+        check5b.checked = !!CONFIG.DOUBLE_SIDED_AUTO;
+        check5b.addEventListener('change', function () {
+            CONFIG.DOUBLE_SIDED_AUTO = check5b.checked;
+            saveConfig();
+            log('auto single sided set to ' + check5b.checked);
+        });
+        row5b.appendChild(check5b);
+        configDiv.appendChild(row5b);
 
         var row6 = document.createElement('div');
         row6.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
@@ -1961,8 +1979,15 @@
             // Sketchfab can render a model two-sided (Inspector: Single Sided OFF), which glTF
             // expresses per material. We cannot read that setting yet, so it is a manual option.
             if (CONFIG.DOUBLE_SIDED) {
-                mats.forEach(function (m) { m.doubleSided = true; });
-                log('materials marked doubleSided: ' + mats.length);
+                var nSingle = 0;
+                mats.forEach(function (m, mi) {
+                    var cv = matsFlat[mi] ? matsFlat[mi].__cull : undefined;
+                    var on = !(cv === undefined || cv === null || cv === 0 || cv === false || /^(none|0|false|off)?$/i.test(String(cv)));
+                    log('material ' + m.name + ': cullFace=' + String(cv) + (on ? ' (single sided)' : ''));
+                    if (CONFIG.DOUBLE_SIDED_AUTO && on) { nSingle++; return; }
+                    m.doubleSided = true;
+                });
+                log('materials marked doubleSided: ' + (mats.length - nSingle) + ' of ' + mats.length);
             }
 
             // ---- animation clips (multi-clip aware) ----
