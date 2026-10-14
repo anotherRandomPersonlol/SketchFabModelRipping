@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Sketchfab Ripper V17
-// @version      17.1.0
-// @description  download Sketchfab models as GLB with skeleton, recorded animation, and PBR textures
+// @name         Sketchfab Ripper
+// @version      1.1.0
+// @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
 // @include      /^https?://(www\.)?sketchfab\.com/.*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js
