@@ -37,7 +37,6 @@
         MAX_RECORD_SECONDS: 12,
         AUTO_RELOAD_ON_FAILURE: true,
         MR_TEXTURE_FORMAT: 'jpeg',  // 'jpeg' (small) or 'png' (lossless)
-        CLIP_FPS: 30,               // (unused, kept for old saved settings)
         RECORD_FPS: 0,              // recording sample rate: 0 = every rendered frame, or 60 / 30 / 24 / 15
         CLIP_SETTLE_FRAMES: 2,      // rAF ticks to wait after seeking to a clip's start
         DEDUPE_STRICT_WORLD: false, // true: keep same-name meshes at different positions
@@ -529,7 +528,7 @@
             var q      = isJpeg ? 0.92 : undefined;
             var name   = saveimagecache2[url].name + ext;
             saveimagecache2[url].fileExt = ext;
-            saveimagecache2[url].dataURL = canvas.toDataURL(mime, q);
+            saveimagecache2[url].dataURL = true;   // capture flag only (a base64 copy was never read)
             canvas.toBlob(function (b) { objects[name] = b; }, mime, q);
         } catch (e) { warn('drawhookimg', e.message); }
     };
@@ -1549,7 +1548,9 @@
                 c.width = W; c.height = H;
                 var x = c.getContext('2d');
                 x.drawImage(bmp, 0, 0, W, H);
-                return x.getImageData(0, 0, W, H).data;
+                var px = x.getImageData(0, 0, W, H).data;
+                c.width = 0; if (bmp.close) bmp.close();   // release the bitmap and canvas memory early
+                return px;
             }
             var mData = mBmp ? readGray(mBmp) : null;
             var rData = rBmp ? readGray(rBmp) : null;
@@ -1672,7 +1673,9 @@
                 c.width = W; c.height = H;
                 var x = c.getContext('2d');
                 x.drawImage(bmp, 0, 0, W, H);   // the mask is scaled to the color size
-                return x.getImageData(0, 0, W, H).data;
+                var px = x.getImageData(0, 0, W, H).data;
+                c.width = 0; if (bmp.close) bmp.close();   // release the bitmap and canvas memory early
+                return px;
             }
             var cData = noColor ? null : readPixels(cBmp), mData = readPixels(mBmp);
             var out = new Uint8ClampedArray(W * H * 4);
@@ -2005,7 +2008,8 @@
                                 var cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx;
                                 var height = Math.sqrt(cx * cx + cy * cy + cz * cz) / L;   // 2*area / longest edge
                                 if (CONFIG.DROP_STRIP_SLIVERS && (pm === 5 || pm === 6) && height < 2 * med) cand.push(q);
-                                if (shown++ < 3) {
+                                if (shown < 3 && CONFIG.DROP_STRIP_SLIVERS && (pm === 5 || pm === 6) && height < 2 * med) {
+                                    shown++;
                                     var at = tpos[q], ctx = [];
                                     for (var ci = Math.max(0, at - 5); ci <= Math.min(pi2.length - 1, at + 3); ci++) ctx.push((ci === at ? '*' : '') + pi2[ci]);
                                     log('long triangle:', nm, 'mode ' + pm, 'tri (' + a0 + ',' + b0 + ',' + c0 + ') longest edge ' + L.toFixed(3) +
@@ -2053,10 +2057,10 @@
                             }
                             if (hits > nDrop) log('mesh ' + nm + ': ' + (hits - nDrop) + ' long thin triangle(s) kept (real geometry, edges shared)');
                         })();
-                        if (oobN || degN) log('indices:', nm, 'mode ' + pm, pi2.length + ' indices ->', (tl.length / 3) + ' triangles, restart/out-of-range ' + oobN + ', degenerate ' + degN + ', vertices ' + vc);
+                        if (oobN) log('indices:', nm, 'mode ' + pm, pi2.length + ' indices ->', (tl.length / 3) + ' triangles, restart/out-of-range ' + oobN + ', degenerate ' + degN + ', vertices ' + vc);
                         triParts.push(tl);
                     });
-                    if (mdl.primitives.length > 1 || (mdl.primitives[0] && mdl.primitives[0].mode === 5)) log('primitives:', nm, mdl.primitives.length, '(mode x indices: ' + modeLog.join(', ') + ')');
+                    if (mdl.primitives.length > 1) log('primitives:', nm, mdl.primitives.length, '(mode x indices: ' + modeLog.join(', ') + ')');
                     if (triParts.length) {
                         mergedInd = [];
                         triParts.forEach(function (tl) { for (var tq = 0; tq < tl.length; tq++) mergedInd.push(tl[tq]); });
@@ -2378,15 +2382,15 @@
             // Sketchfab can render a model two-sided (Inspector: Single Sided OFF), which glTF
             // expresses per material. We cannot read that setting yet, so it is a manual option.
             if (CONFIG.DOUBLE_SIDED) {
-                var nSingle = 0;
+                var singleNames = [];
                 mats.forEach(function (m, mi) {
-                    var cv = matsFlat[mi] ? matsFlat[mi].__cull : undefined;
+                    var cv = matsFlat[mi] ? matsFlat[mi].__cull : undefined;   // 1029 (GL_BACK) = Single Sided ON, 0 = OFF
                     var on = !(cv === undefined || cv === null || cv === 0 || cv === false || /^(none|0|false|off)?$/i.test(String(cv)));
-                    log('material ' + m.name + ': cullFace=' + String(cv) + (on ? ' (single sided)' : ''));
-                    if (CONFIG.DOUBLE_SIDED_AUTO && on) { nSingle++; return; }
+                    if (CONFIG.DOUBLE_SIDED_AUTO && on) { singleNames.push(m.name); return; }
                     m.doubleSided = true;
                 });
-                log('materials marked doubleSided: ' + (mats.length - nSingle) + ' of ' + mats.length);
+                log('materials marked doubleSided: ' + (mats.length - singleNames.length) + ' of ' + mats.length +
+                    (singleNames.length ? ' (single sided in the viewer: ' + singleNames.join(', ') + ')' : ''));
             }
 
             // ---- animation clips (multi-clip aware) ----
@@ -3014,24 +3018,11 @@
         Ev.prototype.stopPropagation = function () { this._stop = true; };
         Ev.prototype.replacePayload = function (p) { this._replace = p; };
 
-        var cbs = [];
-        window.addBeforeScriptExecuteListener = function (f) {
-            if (typeof f !== 'function') throw new Error('callback must be function');
-            cbs.push(f);
-        };
-        window.removeBeforeScriptExecuteListener = function (f) {
-            var i = cbs.length; while (i--) if (cbs[i] === f) cbs.splice(i, 1);
-        };
-
         function dispatch(script, target) {
             if (!script || script.tagName !== 'SCRIPT') return;
             var e = new Ev(script, target);
             if (typeof window.onbeforescriptexecute === 'function') {
                 try { window.onbeforescriptexecute(e); } catch (err) { console.error(err); }
-            }
-            for (var i = 0; i < cbs.length; i++) {
-                if (e._stop) break;
-                try { cbs[i](e); } catch (err) { console.error(err); }
             }
             if (e._cancel) { script.textContent = ''; script.remove(); }
             else if (typeof e._replace === 'string') { script.textContent = e._replace; }
