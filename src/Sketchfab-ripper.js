@@ -2494,7 +2494,7 @@
                 nodes[meshNodeIdx].skin = skinIdx;
                 delete nodes[meshNodeIdx].matrix;
 
-                var decErr = { max: 0, joint: -1, frame: -1, bad: 0 };
+                var decErr = { max: 0, joint: -1, frame: -1, bad: 0 }, holdJoints = 0;
                 // Joints whose matrix has shear get a helper parent node: helper = T*U*S, joint = V^T (exact).
                 var helperOf = {};
                 function makeHelper(jx) {
@@ -2607,31 +2607,70 @@
                                 S.push(d.scale[0], d.scale[1], d.scale[2]);
                             }
 
+                            // Show/hide by scale (scale jumps between ~0 and visible from one sample to the next): the
+                            // viewer switches instantly, LINEAR would blend both shapes between the two samples. Hold the old
+                            // value until just before the next sample so the switch stays near-instant.
+                            var jTimes = tr.times, jTimeAcc = tr.timeAcc;
+                            (function () {
+                                var nF = jTimes.length, mags = [], mxs = 0, hi, hk;
+                                for (hi = 0; hi < nF; hi++) {
+                                    var mg = Math.max(Math.abs(S[hi * 3]), Math.abs(S[hi * 3 + 1]), Math.abs(S[hi * 3 + 2]));
+                                    mags.push(mg); if (mg > mxs) mxs = mg;
+                                }
+                                if (!(mxs > 0)) return;
+                                var lo = 1e-4 * mxs, vis = 0.1 * mxs, cuts = [];
+                                for (hi = 0; hi + 1 < nF; hi++) {
+                                    var a0 = mags[hi], a1 = mags[hi + 1];
+                                    if ((a0 <= lo && a1 >= vis) || (a1 <= lo && a0 >= vis)) cuts.push(hi);
+                                }
+                                if (!cuts.length) return;
+                                var nt = [], nT = [], nR = [], nS = [], nRV = [], ci3 = 0;
+                                function pushF(src, t) {
+                                    nt.push(t);
+                                    for (hk = 0; hk < 3; hk++) { nT.push(T[src * 3 + hk]); nS.push(S[src * 3 + hk]); }
+                                    for (hk = 0; hk < 4; hk++) { nR.push(R[src * 4 + hk]); if (RV.length) nRV.push(RV[src * 4 + hk]); }
+                                }
+                                for (hi = 0; hi < nF; hi++) {
+                                    pushF(hi, jTimes[hi]);
+                                    if (ci3 < cuts.length && cuts[ci3] === hi) {
+                                        var gap = jTimes[hi + 1] - jTimes[hi];
+                                        if (gap > 2e-4) pushF(hi, Math.fround(jTimes[hi + 1] - Math.min(0.001, gap * 0.5)));
+                                        ci3++;
+                                    }
+                                }
+                                T = nT; R = nR; S = nS; if (RV.length) RV = nRV;
+                                jTimes = nt;
+                                jTimeAcc = accs.length;
+                                accs.push({ bufferView: addBV(new Float32Array(nt)), componentType: 5126, count: nt.length,
+                                            type: 'SCALAR', min: [nt[0]], max: [nt[nt.length - 1]] });
+                                holdJoints++;
+                            })();
+
                             var aT = accs.length;
                             accs.push({ bufferView: addBV(new Float32Array(T)), componentType: 5126,
-                                        count: tr.times.length, type: 'VEC3' });
-                            tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aT });
+                                        count: jTimes.length, type: 'VEC3' });
+                            tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aT });
                             tr.channels.push({ sampler: tr.samplers.length - 1,
                                                target: { node: tgtTRS, path: 'translation' } });
 
                             var aR = accs.length;
                             accs.push({ bufferView: addBV(new Float32Array(R)), componentType: 5126,
-                                        count: tr.times.length, type: 'VEC4' });
-                            tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aR });
+                                        count: jTimes.length, type: 'VEC4' });
+                            tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aR });
                             tr.channels.push({ sampler: tr.samplers.length - 1,
                                                target: { node: tgtTRS, path: 'rotation' } });
 
                             var aS = accs.length;
                             accs.push({ bufferView: addBV(new Float32Array(S)), componentType: 5126,
-                                        count: tr.times.length, type: 'VEC3' });
-                            tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aS });
+                                        count: jTimes.length, type: 'VEC3' });
+                            tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aS });
                             tr.channels.push({ sampler: tr.samplers.length - 1,
                                                target: { node: tgtTRS, path: 'scale' } });
                             if (shearJ[jn]) {
                                 var aRV = accs.length;
                                 accs.push({ bufferView: addBV(new Float32Array(RV)), componentType: 5126,
-                                            count: tr.times.length, type: 'VEC4' });
-                                tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aRV });
+                                            count: jTimes.length, type: 'VEC4' });
+                                tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aRV });
                                 tr.channels.push({ sampler: tr.samplers.length - 1,
                                                    target: { node: nIdx, path: 'rotation' } });
                             }
@@ -2688,6 +2727,7 @@
                     log('skin', skinIdx, 'for mesh', meshes[nodes[meshNodeIdx].mesh].name,
                         '→', jointCount, 'joints,', animatedCount, 'animated,',
                         tracks.length, 'clip(s)');
+                    if (holdJoints) log('skin ' + skinIdx + ': ' + holdJoints + ' joint channel set(s) with show/hide-by-scale switches kept instant (hold keys)');
                     var nHelp = 0; for (var hk in helperOf) if (helperOf.hasOwnProperty(hk)) nHelp++;
                     if (nHelp) log('skin ' + skinIdx + ': ' + nHelp + ' joint(s) with shear (max ' + (decErr.max * 100).toFixed(1) +
                         '% TRS error at joint ' + decErr.joint + ') stored exactly as helper node + joint (U*S*Vt)');

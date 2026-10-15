@@ -385,3 +385,13 @@ Fixed:
 - F14 fpsDue tolerance for rAF jitter; F15 texture file names unique case-insensitively.
 Deferred: F7 (skinned mesh under an animated non-bone ancestor; skel_root uses export-time world), F16 (merged texture lookup by pool key
 instead of name; collision only if an artist texture is literally named <mesh>_MR/_Alpha).
+
+## Round 17 (girl face)
+- Patriot/treehouse/opacity fine after the second review fixes.
+- Girl: face in Blender edit mode (Tab) shows the raw bind mesh incl. hidden expression parts (normal). Small holes when playing in Blender:
+  Blender bones cannot carry shear (rest bones have no scale; the importer converts pose to per-bone TRS), so the exact helper-node
+  shear is approximated there; three.js composes it exactly.
+- Brief over-open mouth: expressions switch by scaling bones 0 <-> visible in a single viewer frame; LINEAR between two samples blended both
+  shapes. Now, per joint and clip, when the scale magnitude jumps between <= 1e-4*max and >= 0.1*max across consecutive samples, a hold key
+  (copy of the previous sample) is inserted 1 ms (or half the gap) before the next sample, with its own time accessor. Log:
+  `skin N: k joint channel set(s) with show/hide-by-scale switches kept instant (hold keys)`.
