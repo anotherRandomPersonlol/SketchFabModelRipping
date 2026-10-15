@@ -26,7 +26,7 @@ body:
     id: version
     attributes:
       label: Script version
-      description: Find the version in Tampermonkey, in the "@version" line of the script.
+      description: Find the version in Tampermonkey, in the `// @version` line at the top of the script.
       placeholder: "1.1.0"
     validations:
       required: true

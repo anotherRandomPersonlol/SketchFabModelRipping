@@ -23,7 +23,7 @@
 - Many smaller problems that two code reviews found (index limits, export during recording, settings validation, memory use).
 
 ### Changed
-- Script name is now "Sketchfab Ripper", version 1.1.0.
+- Script name is now "Sketchfab Ripper", version 1.1.0. The file is now `src/Sketchfab-ripper.user.js`, so Tampermonkey can install it from a link and update it.
 - Quieter console log. Each export still lists the materials, so you can paste the log in a bug report.
 
 ## v1.0.0

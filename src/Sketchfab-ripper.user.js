@@ -8,6 +8,10 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js
 // @run-at       document-start
 // @grant        unsafeWindow
+// @homepageURL  https://github.com/anotherRandomPersonlol/SketchFabModelRipping
+// @supportURL   https://github.com/anotherRandomPersonlol/SketchFabModelRipping/issues
+// @downloadURL  https://raw.githubusercontent.com/anotherRandomPersonlol/SketchFabModelRipping/main/src/Sketchfab-ripper.user.js
+// @updateURL    https://raw.githubusercontent.com/anotherRandomPersonlol/SketchFabModelRipping/main/src/Sketchfab-ripper.user.js
 // ==/UserScript==
 // Based off Risk's extraction
 (function () {
