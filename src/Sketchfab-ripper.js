@@ -143,6 +143,17 @@
         return world;
     }
 
+    // Inverse of decomposeMat4: column-major T*R*S matrix (used to measure decomposition error).
+    function composeTRS(d) {
+        var x = d.rotation[0], y = d.rotation[1], z = d.rotation[2], w = d.rotation[3], s = d.scale, t = d.translation;
+        return [
+            (1 - 2 * (y * y + z * z)) * s[0], (2 * (x * y + z * w)) * s[0], (2 * (x * z - y * w)) * s[0], 0,
+            (2 * (x * y - z * w)) * s[1], (1 - 2 * (x * x + z * z)) * s[1], (2 * (y * z + x * w)) * s[1], 0,
+            (2 * (x * z + y * w)) * s[2], (2 * (y * z - x * w)) * s[2], (1 - 2 * (x * x + y * y)) * s[2], 0,
+            t[0], t[1], t[2], 1
+        ];
+    }
+
     function decomposeMat4(m) {
         var tx = m[12], ty = m[13], tz = m[14];
         var sx = Math.sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
@@ -1465,14 +1476,15 @@
     function opacitySource(cm) { return cm.Opacity || cm.AlphaMask || null; }
 
     function _mergeOneOpacity(cm) {
-        var colorBlob = _blobForUrl(cm.AlbedoPBR.url);
+        var noColor = !cm.AlbedoPBR || !(cm.AlbedoPBR.url || cm.AlbedoPBR.name) || cm.AlbedoPBR.atlas;
+        var colorBlob = noColor ? null : _blobForUrl(cm.AlbedoPBR.url);
         var maskBlob = _blobForUrl(opacitySource(cm).url);
-        if (!colorBlob || !maskBlob) {
+        if ((!noColor && !colorBlob) || !maskBlob) {
             warn('opacity merge: missing source (color=' + !!colorBlob + ' mask=' + !!maskBlob + ')');
             return Promise.resolve(null);
         }
-        return Promise.all([createImageBitmap(colorBlob), createImageBitmap(maskBlob)]).then(function (bmps) {
-            var cBmp = bmps[0], mBmp = bmps[1];
+        return Promise.all([noColor ? null : createImageBitmap(colorBlob), createImageBitmap(maskBlob)]).then(function (bmps) {
+            var mBmp = bmps[1], cBmp = bmps[0] || mBmp;
             var W = cBmp.width, H = cBmp.height;
             function readPixels(bmp) {
                 var c = document.createElement('canvas');
@@ -1481,13 +1493,13 @@
                 x.drawImage(bmp, 0, 0, W, H);   // the mask is scaled to the color size
                 return x.getImageData(0, 0, W, H).data;
             }
-            var cData = readPixels(cBmp), mData = readPixels(mBmp);
+            var cData = noColor ? null : readPixels(cBmp), mData = readPixels(mBmp);
             var out = new Uint8ClampedArray(W * H * 4);
             for (var p = 0; p < W * H; p++) {
                 var q = p * 4;
-                out[q] = cData[q];
-                out[q + 1] = cData[q + 1];
-                out[q + 2] = cData[q + 2];
+                out[q] = cData ? cData[q] : 255;          // no colour image: white, the factor gives the colour
+                out[q + 1] = cData ? cData[q + 1] : 255;
+                out[q + 2] = cData ? cData[q + 2] : 255;
                 // luminance of the mask: black = clear, white = solid
                 out[q + 3] = Math.round(0.2126 * mData[q] + 0.7152 * mData[q + 1] + 0.0722 * mData[q + 2]);
             }
@@ -1503,6 +1515,7 @@
     var _opacityKind = {};      // sanitized mesh name -> 'opacity' | 'alphamask'
     var _alphaFirst = {};       // 'colorUrl|maskUrl' -> first sanitized mesh name that merged it
     var _alphaShare = {};       // sanitized mesh name -> sanitized name that owns the merged texture
+    var _opacityNoColor = {};   // sanitized mesh name -> merged opacity has no colour image (white RGB, alpha only)
     var _opacityOneFile = {};   // sanitized mesh name -> true when opacity lives in the base color file's alpha
 
     function mergeOpacityTextures() {
@@ -1510,6 +1523,7 @@
         _opacityKind = {};
         _alphaFirst = {};
         _alphaShare = {};
+        _opacityNoColor = {};
         var jobs = [];
         var seen = {};
         window.allmodel.forEach(function (obj, i) {
@@ -1517,18 +1531,23 @@
             var meshName = obj._name || (ss && ss._name) || ('mesh_' + i);
             var cm = getChannelTextureMap(obj);
             var opSrc = opacitySource(cm);
-            if (!opSrc || !cm.AlbedoPBR) return;
+            if (!opSrc || !(opSrc.url || opSrc.name) || opSrc.atlas) return;
+            var mch = getMaterialChannels(obj);
+            var opCh = mch && (cm.Opacity ? mch.Opacity : mch.AlphaMask);
+            if (opCh && opCh.enable === false) return;   // texture present but the channel is switched off in the viewer
             var san = sanitizeTextureName(meshName);
             if (seen[san]) return;
             seen[san] = true;
             _opacityKind[san] = cm.Opacity ? 'opacity' : 'alphamask';
-            if (normalizeUrl(opSrc.url) === normalizeUrl(cm.AlbedoPBR.url)) {
+            if (!cm.AlbedoPBR || !(cm.AlbedoPBR.url || cm.AlbedoPBR.name) || cm.AlbedoPBR.atlas) {
+                _opacityNoColor[san] = true;   // opacity image only: merge into a white RGB + alpha texture
+            } else if (normalizeUrl(opSrc.url) === normalizeUrl(cm.AlbedoPBR.url)) {
                 _opacityOneFile[san] = true;
                 log('opacity merge: ' + meshName + ' uses one file for color and opacity, skipped');
                 return;
             }
             // Meshes sharing the same colour and mask images share one merged texture.
-            var okey = normalizeUrl(cm.AlbedoPBR.url) + '|' + normalizeUrl(opSrc.url);
+            var okey = (_opacityNoColor[san] ? 'white' : normalizeUrl(cm.AlbedoPBR.url)) + '|' + normalizeUrl(opSrc.url);
             if (_alphaFirst[okey]) { _alphaShare[san] = _alphaFirst[okey]; log('opacity merge: ' + meshName + ' shares the merged texture of ' + _alphaFirst[okey]); return; }
             _alphaFirst[okey] = san;
             jobs.push(
@@ -2114,9 +2133,12 @@
                 log('material ' + m.name + ': texture channels [' + chKeys.join(',') + '] mapping [' + mapKeys.join(',') + ']' +
                     (pbr.baseColorTexture ? ' baseColorTexture set' : ' no baseColorTexture'));
                 var alb = flat.AlbedoPBR;
-                if (alb && alb.enable && alb.color && !pbr.baseColorTexture && !texd('AlbedoPBR') && !texd('DiffusePBR')) {
-                    var af = (typeof alb.factor === 'number') ? alb.factor : 1;
-                    pbr.baseColorFactor = [Math.min(1, alb.color[0] * af), Math.min(1, alb.color[1] * af), Math.min(1, alb.color[2] * af), 1];
+                var alphaOnlyTex = !!_opacityNoColor[sanitizeTextureName(m.name)];
+                if (alb && alb.enable && (alb.color || typeof alb.factor === 'number') && (!pbr.baseColorTexture || alphaOnlyTex) && !texd('AlbedoPBR') && !texd('DiffusePBR')) {
+                    // No colour value means white scaled by the factor (factor 0 = black base, colour from emission only).
+                    var af = (typeof alb.factor === 'number') ? alb.factor : 1, ac = alb.color || [1, 1, 1];
+                    var aa = (pbr.baseColorFactor && pbr.baseColorFactor[3] !== undefined) ? pbr.baseColorFactor[3] : 1;
+                    pbr.baseColorFactor = [Math.min(1, ac[0] * af), Math.min(1, ac[1] * af), Math.min(1, ac[2] * af), aa];
                     did.push('base color');
                 }
                 var mt = flat.MetalnessPBR, rg = flat.RoughnessPBR;
@@ -2274,6 +2296,7 @@
                 nodes[meshNodeIdx].skin = skinIdx;
                 delete nodes[meshNodeIdx].matrix;
 
+                var decErr = { max: 0, joint: -1, frame: -1, bad: 0 };
                 if (hasFrames && paletteRef) {
                     var animatedCount = 0;
                     var animatedJoints = {};
@@ -2318,6 +2341,12 @@
                                 var mPal = (pal && pal.length >= (jn + 1) * 12)
                                          ? expandMat3x4(pal, jn) : identityMat4();
                                 var d = decomposeMat4(mPal);
+                                // Skinning matrices with shear (non-uniform scale under rotation) cannot be stored as
+                                // TRS; measure how much is lost (diagnostic for distorted skinned parts).
+                                var dc = composeTRS(d), de = 0, dsc = 1e-9;
+                                for (var dq = 0; dq < 12; dq++) { if (dq % 4 === 3) continue; de = Math.max(de, Math.abs(dc[dq] - mPal[dq])); dsc = Math.max(dsc, Math.abs(mPal[dq])); }
+                                if (de / dsc > decErr.max) { decErr.max = de / dsc; decErr.joint = jn; decErr.frame = fi3; }
+                                if (de / dsc > 1e-3) decErr.bad++;
                                 if (prevQ) {
                                     var dot = d.rotation[0]*prevQ[0] + d.rotation[1]*prevQ[1]
                                             + d.rotation[2]*prevQ[2] + d.rotation[3]*prevQ[3];
@@ -2406,6 +2435,8 @@
                     log('skin', skinIdx, 'for mesh', meshes[nodes[meshNodeIdx].mesh].name,
                         '→', jointCount, 'joints,', animatedCount, 'animated,',
                         tracks.length, 'clip(s)');
+                    if (decErr.bad) warn('skin ' + skinIdx + ': ' + decErr.bad + ' joint frame(s) have shear that TRS cannot store (max error ' +
+                        (decErr.max * 100).toFixed(1) + '% at joint ' + decErr.joint + ', frame ' + decErr.frame + '); parts skinned to it may look distorted');
                 } else {
                     var live = liveSnap && liveSnap[mIdx];
                     if (live && live.palette) {

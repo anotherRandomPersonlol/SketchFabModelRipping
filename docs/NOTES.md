@@ -335,3 +335,13 @@ Model-switch state reset (#1) still open: with pruning, leftovers no longer end 
   negative determinant (mirrored bone) moves the reflection into scale X. Round-trip compose(decompose(M)) = M verified for plain, mirrored,
   zero-axis and all-zero matrices.
 - Open: girl's red visor exports white (material Accessoris: EmitColor + Opacity textures, no AlbedoPBR in mapping). Needs probe-material-factors output.
+
+## Round 13
+- Patriot rods back, treehouse stripes gone (unshared-long-edge rule works; Patriot radar body still drops 8 - check visually if anything is missing).
+- Girl visor (material Accessoris): AlbedoPBR enabled with factor 0 and NO colour value, colour comes from an emission texture (unlit anime
+  style), transparency from a separate Opacity image. Fixes: base colour = (colour or white) x factor even without a colour value; Opacity/AlphaMask
+  image without a colour image is merged into a white-RGB + alpha texture (`_opacityNoColor`) and the flat base colour still applies on top;
+  opacity textures on a channel switched off in the viewer are no longer merged.
+- Girl face pulled toward the bubble centre: skin joints are exported as flat palette matrices (identity IBMs) decomposed to TRS. A palette with
+  shear (non-uniform scale under rotation) cannot be stored as TRS. New per-skin warning `joint frame(s) have shear that TRS cannot store
+  (max error x% at joint j, frame f)` to confirm before a bigger change (exporting the real bone hierarchy).
