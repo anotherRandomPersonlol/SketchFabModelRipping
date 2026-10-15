@@ -96,6 +96,15 @@
     // Math
     // ====================================================================
     function identityMat4() { return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
+    function mulMat4(a, b) {   // column-major a * b
+        var r = new Array(16), c, rr, k;
+        for (c = 0; c < 4; c++) for (rr = 0; rr < 4; rr++) {
+            var v = 0;
+            for (k = 0; k < 4; k++) v += a[k * 4 + rr] * b[c * 4 + k];
+            r[c * 4 + rr] = v;
+        }
+        return r;
+    }
 
     function matToArr(m) {
         if (!m || m.length !== 16) return null;
@@ -2502,7 +2511,7 @@
                 nodes[meshNodeIdx].skin = skinIdx;
                 delete nodes[meshNodeIdx].matrix;
 
-                var decErr = { max: 0, joint: -1, frame: -1, bad: 0 }, holdJoints = 0;
+                var decErr = { max: 0, joint: -1, frame: -1, bad: 0 }, holdJoints = 0, ibmFixed = 0;
                 // Joints whose matrix has shear get a helper parent node: helper = T*U*S, joint = V^T (exact).
                 var helperOf = {};
                 function makeHelper(jx) {
@@ -2513,6 +2522,16 @@
                     if (kp >= 0) kids[kp] = hIdx; else kids.push(hIdx);
                     helperOf[jx] = hIdx;
                     return hIdx;
+                }
+                // Preferred fix for shear: a constant right rotation Q (the SVD's V) goes into the inverse bind
+                // matrix (IBM = Q^T) and the joint itself is P*Q = T*U*S, a plain TRS node. Blender can import that
+                // exactly (its bones cannot hold a scaled helper node). Only used when Q is constant over all frames.
+                var ibmQ = {};
+                function q4FromV(V) { return [V[0][0], V[0][1], V[0][2], 0, V[1][0], V[1][1], V[1][2], 0, V[2][0], V[2][1], V[2][2], 0, 0, 0, 0, 1]; }
+                function setIbmQ(jx, Q) {
+                    ibmQ[jx] = Q;
+                    var o = jx * 16, r, c;
+                    for (c = 0; c < 4; c++) for (r = 0; r < 4; r++) ibmFlat[o + c * 4 + r] = Q[r * 4 + c];   // transpose (inverse of a rotation)
                 }
                 function setShearRest(jx, mat) {
                     var hx = makeHelper(jx), sd = svdDecompose(mat, null), jNode = jointNodeIndices[jx];
@@ -2533,6 +2552,30 @@
                                 if (serr > 1e-3) { shearJ[sjn] = true; decErr.bad++; break; }
                             }
                         }
+                        if (!shearJ[sjn]) continue;
+                        // Constant right rotation? Take V from the first non-uniform frame, then check every frame.
+                        var qCand = null, qOk = true, qMax = 0;
+                        for (var qt = 0; qt < tracks.length && !qCand; qt++) {
+                            var qfr = tracks[qt].frames;
+                            for (var qf = 0; qf < qfr.length; qf++) {
+                                var qfm = qfr[qf].meshes[mIdx], qpal = qfm && qfm.palette;
+                                if (!qpal || qpal.length < (sjn + 1) * 12) continue;
+                                var qsd = svdDecompose(expandMat3x4(qpal, sjn), null);
+                                if (!qsd.uniform) { qCand = q4FromV(qsd.V); break; }
+                            }
+                        }
+                        if (!qCand) continue;
+                        for (var qt2 = 0; qt2 < tracks.length && qOk; qt2++) {
+                            var qfr2 = tracks[qt2].frames;
+                            for (var qf2 = 0; qf2 < qfr2.length; qf2++) {
+                                var qfm2 = qfr2[qf2].meshes[mIdx], qpal2 = qfm2 && qfm2.palette;
+                                if (!qpal2 || qpal2.length < (sjn + 1) * 12) continue;
+                                var qe = trsError(mulMat4(expandMat3x4(qpal2, sjn), qCand));
+                                if (qe > qMax) qMax = qe;
+                                if (qe > 1e-3) { qOk = false; break; }
+                            }
+                        }
+                        if (qOk) { setIbmQ(sjn, qCand); shearJ[sjn] = false; ibmFixed++; }
                     }
                 }
                 if (hasFrames && paletteRef) {
@@ -2588,6 +2631,7 @@
                                 var pal = fmesh && fmesh.palette;
                                 var mPal = (pal && pal.length >= (jn + 1) * 12)
                                          ? expandMat3x4(pal, jn) : identityMat4();
+                                if (ibmQ[jn]) mPal = mulMat4(mPal, ibmQ[jn]);
                                 if (shearJ[jn]) {
                                     var sd3 = svdSeq[fi3];
                                     var qU = _quatCont(sd3.rotU, prevQ), qV = _quatCont(sd3.rotV, prevQV);
@@ -2724,7 +2768,12 @@
                             continue;
                         }
                         var pal0 = expandMat3x4(restPal, sj);
-                        if (shearJ[sj] || (!animatedJoints[jnIdx] && trsError(pal0) > 1e-3)) { setShearRest(sj, pal0); continue; }
+                        if (ibmQ[sj]) pal0 = mulMat4(pal0, ibmQ[sj]);
+                        else if (!shearJ[sj] && !animatedJoints[jnIdx] && trsError(pal0) > 1e-3) {
+                            setIbmQ(sj, q4FromV(svdDecompose(pal0, null).V)); ibmFixed++;   // static joint: P*Q is exact TRS
+                            pal0 = mulMat4(pal0, ibmQ[sj]);
+                        }
+                        if (shearJ[sj]) { setShearRest(sj, pal0); continue; }
                         var d0 = decomposeMat4(pal0);
                         nodes[jnIdx].translation = d0.translation;
                         nodes[jnIdx].rotation = d0.rotation;
@@ -2736,6 +2785,7 @@
                         '→', jointCount, 'joints,', animatedCount, 'animated,',
                         tracks.length, 'clip(s)');
                     if (holdJoints) log('skin ' + skinIdx + ': ' + holdJoints + ' joint channel set(s) with show/hide-by-scale switches kept instant (hold keys)');
+                    if (ibmFixed) log('skin ' + skinIdx + ': ' + ibmFixed + ' sheared joint(s) stored exactly via the inverse bind matrix (plain TRS joints)');
                     var nHelp = 0; for (var hk in helperOf) if (helperOf.hasOwnProperty(hk)) nHelp++;
                     if (nHelp) log('skin ' + skinIdx + ': ' + nHelp + ' joint(s) with shear (max ' + (decErr.max * 100).toFixed(1) +
                         '% TRS error at joint ' + decErr.joint + ') stored exactly as helper node + joint (U*S*Vt)');
@@ -2745,7 +2795,7 @@
                         for (var sj2 = 0; sj2 < jointCount; sj2++) {
                             if ((sj2 + 1) * 12 > live.palette.length) break;
                             var lm = expandMat3x4(live.palette, sj2);
-                            if (trsError(lm) > 1e-3) { setShearRest(sj2, lm); continue; }
+                            if (trsError(lm) > 1e-3) { setIbmQ(sj2, q4FromV(svdDecompose(lm, null).V)); lm = mulMat4(lm, ibmQ[sj2]); ibmFixed++; }
                             var dl = decomposeMat4(lm);
                             var jn2 = jointNodeIndices[sj2];
                             nodes[jn2].translation = dl.translation;

@@ -427,3 +427,14 @@ instead of name; collision only if an artist texture is literally named <mesh>_M
   shapes. Now, per joint and clip, when the scale magnitude jumps between <= 1e-4*max and >= 0.1*max across consecutive samples, a hold key
   (copy of the previous sample) is inserted 1 ms (or half the gap) before the next sample, with its own time accessor. Log:
   `skin N: k joint channel set(s) with show/hide-by-scale switches kept instant (hold keys)`.
+
+## Round 18: Blender exactness (tested with Blender 5.2 as a Python module)
+- Test: import the girl GLB with Blender's glTF importer (default options) and compare the evaluated mesh with exact glTF skinning
+  (`tools/gltf_skin_reference.py`, `tools/blender_compare.py`). Result with helper nodes: every vertex not on a sheared joint exact
+  (7e-7), the 352 vertices on the 8 sheared face joints off by up to 0.9% of the model size. Cause: the helper node has non-uniform scale in its
+  rest pose and Blender edit bones cannot hold scale. Importer options (bind pose guess off, bone direction) made it worse.
+- The SVD's right rotation V was constant over the clip (< 0.05 deg on 7 of 8 joints). New preferred path: IBM = Q^T with Q = V from the first
+  non-uniform frame, joint = P*Q (plain TRS, no helper). Used only when P*Q is TRS-exact (< 1e-3) in every frame of every clip; otherwise the
+  helper node path stays. Static/unanimated sheared joints always use the IBM path (exact for one matrix).
+- Offline conversion of the same export to this layout: three.js-exact (9e-6) and Blender error 3e-5 (float precision), down from 1.2e-2.
+  Log: `skin N: k sheared joint(s) stored exactly via the inverse bind matrix (plain TRS joints)`.
