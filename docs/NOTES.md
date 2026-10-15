@@ -363,3 +363,25 @@ Model-switch state reset (#1) still open: with pruning, leftovers no longer end 
   clip recorder and the manual RECORD loop. The old `CLIP_FPS` key stays only so saved settings still load (it was never applied).
 - Hidden tab: a `visibilitychange` listener warns when the tab is hidden during any recording (rAF pauses, frames skipped / clip truncated);
   README lists it under known limitations.
+
+## Second external review triage (round 16)
+16 findings, each checked against the code; maths ones re-tested with node harnesses (scratch tests: random 3x3 SVD worst 1.3e-15,
+sequences stretch-rotating / largest-axis-to-0 / shear-growing / scale pulse all exact, max frame-to-frame rotation step 1.7 deg).
+Fixed:
+- F1 sliver rule: an open long edge only counts as a bridge when both of its ends touch real (non-candidate) triangles, so free thin
+  cards (wires, grass, hair strips) stay.
+- F2 trsError measured over the whole matrix incl. translation, so large translations hid shear; now 3x3 part only.
+- F3 two equal singular values: basis of that plane chosen closest to the previous frame. Plus `svdSequence`: start at the first
+  non-uniform frame and fill earlier (uniform) frames backwards, so a clip starting from an unscaled pose does not jump (was 49 deg).
+- F4 zero singular value at index 0/1 rebuilt from the two real U axes (was discarding the true U[2]).
+- F5 merged MR: a missing metal/rough map is stored as 255 and the flat factor (or 0 metal) applies; pool entry records hasM/hasR.
+- F6 opacity type: Opacity channel with mask/dither/cutout type -> MASK.
+- F8 end-of-clip detection uses the last seen clock value, not only the last kept frame (RECORD_FPS gaps).
+- F9 RECORD / RECORD ALL refused while an export runs.
+- F10 no valid triangles / out-of-range raw indices -> exported as points instead of invalid indices.
+- F11 try/catch around seek, togglePause, clip click and recordClipRealtime starts (no stuck REC state).
+- F12 opacitySource prefers a real image (Opacity, then AlphaMask) over placeholder/atlas entries.
+- F13 decompose with two zero axes keeps the remaining axis direction.
+- F14 fpsDue tolerance for rAF jitter; F15 texture file names unique case-insensitively.
+Deferred: F7 (skinned mesh under an animated non-bone ancestor; skel_root uses export-time world), F16 (merged texture lookup by pool key
+instead of name; collision only if an artist texture is literally named <mesh>_MR/_Alpha).

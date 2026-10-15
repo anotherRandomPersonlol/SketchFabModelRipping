@@ -188,6 +188,20 @@
         order.sort(function (x, y) { return e.vals[y] - e.vals[x]; });
         var V = [e.vecs[order[0]], e.vecs[order[1]], e.vecs[order[2]]];
         var lmax = Math.max(e.vals[0], e.vals[1], e.vals[2]), lmin = Math.min(e.vals[0], e.vals[1], e.vals[2]);
+        if (prevV) {
+            // Two equal singular values: any basis of that plane is exact; use the one closest to the previous frame.
+            var sv = [e.vals[order[0]], e.vals[order[1]], e.vals[order[2]]], gtol = 1e-4 * Math.max(lmax, 1e-30);
+            var pa = (sv[0] - sv[1] <= gtol && sv[1] - sv[2] > gtol) ? 0 : ((sv[1] - sv[2] <= gtol && sv[0] - sv[1] > gtol) ? 1 : -1);
+            if (pa >= 0) {
+                var pc = V[pa === 0 ? 2 : 0], pr = null, bl = -1;
+                for (i = 0; i < 3; i++) {
+                    var dp = _dot(prevV[i], pc), pj = [prevV[i][0] - dp * pc[0], prevV[i][1] - dp * pc[1], prevV[i][2] - dp * pc[2]];
+                    if (_dot(pj, pj) > bl) { bl = _dot(pj, pj); pr = pj; }
+                }
+                var va = _norm(pr);
+                if (va) { V[pa] = va; V[pa + 1] = _cross(pc, va); }
+            }
+        }
         if (prevV && lmax - lmin <= 1e-6 * Math.max(lmax, 1e-30)) {
             V = [prevV[0], prevV[1], prevV[2]];   // uniform scale: any basis works, keep the previous one (no jump)
         } else if (prevV) {
@@ -213,7 +227,9 @@
         }
         var ok = [];
         for (i = 0; i < 3; i++) { ok[i] = sig[i] > 1e-9 * Math.max(smax, 1e-30); U[i] = ok[i] ? [U[i][0] / sig[i], U[i][1] / sig[i], U[i][2] / sig[i]] : null; if (!ok[i]) sig[i] = 0; }
-        // Complete / orthonormalise U (Gram-Schmidt in V order).
+        // Complete / orthonormalise U (Gram-Schmidt in V order). A zero axis is rebuilt from the two real ones.
+        if (!U[0] && U[1] && U[2]) U[0] = _cross(U[1], U[2]);
+        else if (U[0] && !U[1] && U[2]) U[1] = _cross(U[2], U[0]);
         if (!U[0]) U[0] = U[1] ? _anyPerp(U[1]) : (U[2] ? _anyPerp(U[2]) : [1, 0, 0]);
         if (U[1]) { var d01 = _dot(U[1], U[0]); U[1] = _norm([U[1][0] - d01 * U[0][0], U[1][1] - d01 * U[0][1], U[1][2] - d01 * U[0][2]]); }
         if (!U[1]) U[1] = _anyPerp(U[0]);
@@ -226,8 +242,20 @@
             scale: sig,
             // V^T as a rotation: its columns are the rows of V-as-columns
             rotV: _quatFromCols([V[0][0], V[1][0], V[2][0]], [V[0][1], V[1][1], V[2][1]], [V[0][2], V[1][2], V[2][2]]),
-            V: V
+            V: V,
+            uniform: lmax - lmin <= 1e-6 * Math.max(lmax, 1e-30)
         };
+    }
+    // SVD for a whole frame sequence: start at the first non-uniform frame (its basis is meaningful),
+    // go forward from there, then backward for the leading uniform frames, so no frame picks a random basis.
+    function svdSequence(mats) {
+        var n = mats.length, out = new Array(n), k = 0, i;
+        while (k < n && svdDecompose(mats[k], null).uniform) k++;
+        if (k >= n) k = 0;
+        out[k] = svdDecompose(mats[k], null);
+        for (i = k + 1; i < n; i++) out[i] = svdDecompose(mats[i], out[i - 1].V);
+        for (i = k - 1; i >= 0; i--) out[i] = svdDecompose(mats[i], out[i + 1].V);
+        return out;
     }
     function _quatCont(q, prev) {
         if (prev && q[0] * prev[0] + q[1] * prev[1] + q[2] * prev[2] + q[3] * prev[3] < 0) return [-q[0], -q[1], -q[2], -q[3]];
@@ -235,7 +263,7 @@
     }
     function trsError(m) {
         var dc = composeTRS(decomposeMat4(m)), de = 0, dsc = 1e-9, dq;
-        for (dq = 0; dq < 15; dq++) { if (dq % 4 === 3) continue; de = Math.max(de, Math.abs(dc[dq] - m[dq])); dsc = Math.max(dsc, Math.abs(m[dq])); }
+        for (dq = 0; dq < 11; dq++) { if (dq % 4 === 3) continue; de = Math.max(de, Math.abs(dc[dq] - m[dq])); dsc = Math.max(dsc, Math.abs(m[dq])); }   // 3x3 part only: translation round-trips exactly
         return de / dsc;
     }
 
@@ -265,7 +293,13 @@
         if (!sx && sy && sz) { m00 = m11 * m22 - m21 * m12; m10 = m21 * m02 - m01 * m22; m20 = m01 * m12 - m11 * m02; }
         else if (!sy && sx && sz) { m01 = m12 * m20 - m22 * m10; m11 = m22 * m00 - m02 * m20; m21 = m02 * m10 - m12 * m00; }
         else if (!sz && sx && sy) { m02 = m10 * m21 - m20 * m11; m12 = m20 * m01 - m00 * m21; m22 = m00 * m11 - m10 * m01; }
-        else if ((!sx ? 1 : 0) + (!sy ? 1 : 0) + (!sz ? 1 : 0) >= 2) { m00 = 1; m01 = 0; m02 = 0; m10 = 0; m11 = 1; m12 = 0; m20 = 0; m21 = 0; m22 = 1; }
+        else if ((!sx ? 1 : 0) + (!sy ? 1 : 0) + (!sz ? 1 : 0) === 2) {
+            // One axis left: keep its direction, complete the rotation with any perpendicular pair.
+            var c0 = sx ? [m00, m10, m20] : (sy ? [m01, m11, m21] : [m02, m12, m22]), c1 = _anyPerp(c0), c2 = _cross(c0, c1);
+            if (sx) { m01 = c1[0]; m11 = c1[1]; m21 = c1[2]; m02 = c2[0]; m12 = c2[1]; m22 = c2[2]; }
+            else if (sy) { m02 = c1[0]; m12 = c1[1]; m22 = c1[2]; m00 = c2[0]; m10 = c2[1]; m20 = c2[2]; }
+            else { m00 = c1[0]; m10 = c1[1]; m20 = c1[2]; m01 = c2[0]; m11 = c2[1]; m21 = c2[2]; }
+        } else if (!sx && !sy && !sz) { m00 = 1; m01 = 0; m02 = 0; m10 = 0; m11 = 1; m12 = 0; m20 = 0; m21 = 0; m22 = 1; }
         // Mirrored transform (negative determinant): move the reflection into the X scale.
         var det = m00 * (m11 * m22 - m12 * m21) - m01 * (m10 * m22 - m12 * m20) + m02 * (m10 * m21 - m11 * m20);
         if (det < 0) { sx = -sx; m00 = -m00; m10 = -m10; m20 = -m20; }
@@ -622,7 +656,7 @@
     // True when a frame at time t should be kept for the chosen RECORD_FPS (0 = keep every frame).
     function fpsDue(t, lastT) {
         var f = +CONFIG.RECORD_FPS || 0;
-        return lastT < 0 || f <= 0 || t - lastT >= 1 / f - 1e-4;
+        return lastT < 0 || f <= 0 || t - lastT >= 1 / f - Math.min(0.004, 0.25 / f);   // tolerance for rAF jitter
     }
 
     // Single-clip RECORD with exactly one active clip: restart that clip and record
@@ -647,26 +681,32 @@
         setRecLabel('STOP');
         var base = inst.start || 0;
         log('auto record: one full loop of the active clip (' + def.duration.toFixed(2) + 's)');
-        mgr.setSeekTime(base);
+        try { mgr.setSeekTime(base); } catch (e) {
+            err('auto record seek', e.message);
+            window.animationRecording = false; window.autoRecordActive = false; setRecLabel('RECORD');
+            return false;
+        }
+        function done(frames) {
+            window.animationRecording = false;
+            window.autoRecordActive = false;
+            window.clipCancel = false;
+            setRecLabel('RECORD');
+            if (frames && frames.length > 1) {
+                window.recordedFrames = frames;
+                log('recording stopped, frames:', frames.length);
+            } else {
+                warn('auto record produced no frames');
+            }
+        }
         waitFrames(CONFIG.CLIP_SETTLE_FRAMES, function () {
-            recordClipRealtime(mgr, def, base, function (frames) {
-                window.animationRecording = false;
-                window.autoRecordActive = false;
-                window.clipCancel = false;
-                setRecLabel('RECORD');
-                if (frames && frames.length > 1) {
-                    window.recordedFrames = frames;
-                    log('recording stopped, frames:', frames.length);
-                } else {
-                    warn('auto record produced no frames');
-                }
-            });
+            try { recordClipRealtime(mgr, def, base, done); } catch (e) { err('auto record', e.message); done([]); }
         });
         return true;
     }
 
     function startRecording() {
         if (window.animationRecording || window.clipRecording) return;
+        if (_exporting) { warn('export is running: wait for "export done" before recording'); return; }
         if (startAutoSingleRecording()) return;
         window.animationRecording = true;
         window.recordedFrames = [];
@@ -770,7 +810,7 @@
         // as an extra active clip. stopAllAnimation() does NOT clear this queue.
         var mgr = findAnimationManager();
         if (mgr && mgr._startAnimations) mgr._startAnimations = {};
-        items[k].click();
+        try { items[k].click(); } catch (e) { warn('clip item click', e.message); cb(false); return; }
         waitFrames(6, function () { cb(true); });
     }
 
@@ -837,7 +877,7 @@
         // match what the viewer is showing even if rAF drops frames or _timeFactor
         // is not 1. Falls back to wall-clock time if that clock is unavailable.
         var hasSimClock = typeof mgr.getSimulationTime === 'function';
-        var wall0 = performance.now() / 1000, sim0 = null, lastT = -1, frames = [];
+        var wall0 = performance.now() / 1000, sim0 = null, lastT = -1, lastSeen = -1, frames = [];
         var useSim = hasSimClock;
         function clockNow() {
             if (useSim) {
@@ -880,7 +920,7 @@
                 // "Play all" advances to the next clip as this one ends, and the sim
                 // clock restarts. If we already have (almost) the whole clip, that is
                 // the normal end, not a problem.
-                if (lastT >= def.duration - 0.1) {
+                if (lastT >= def.duration - 0.1 || lastSeen >= def.duration - 0.1) {
                     log('clip ' + def.name + ': viewer moved to the next clip at the end, frames=' + frames.length);
                     finish(null);
                     return;
@@ -899,6 +939,7 @@
                 finish('clock stalled at t=' + t.toFixed(3));
                 return;
             }
+            lastSeen = t;   // last clock value seen (kept or skipped by RECORD_FPS), for end-of-clip detection
             requestAnimationFrame(tick);
         }
         log('clip clock: ' + (useSim ? 'manager simulation time' : 'wall clock') + ' (' + def.name + ')');
@@ -915,13 +956,15 @@
             }
             var inst = mgr._instanceAnimations[def.uid];
             var base = (inst && inst.start) || 0;
-            if (!mgr._pause) mgr.togglePause();
             // Real-time capture only: seek-based sampling while paused updates the
             // palette too sparsely on this viewer. Seek to the clip start, let it
             // settle, then record while the clip plays.
-            mgr.setSeekTime(base);
+            try {
+                if (!mgr._pause) mgr.togglePause();
+                mgr.setSeekTime(base);
+            } catch (e) { err('clip seek ' + def.name, e.message); cb(null); return; }
             waitFrames(CONFIG.CLIP_SETTLE_FRAMES, function () {
-                recordClipRealtime(mgr, def, base, cb);
+                try { recordClipRealtime(mgr, def, base, cb); } catch (e) { err('clip record ' + def.name, e.message); cb(null); }
             });
         });
     }
@@ -995,6 +1038,7 @@
             warn('already recording');
             return;
         }
+        if (_exporting) { warn('export is running: wait for "export done" before recording'); return; }
         var mgr = findAnimationManager();
         if (!mgr) { warn('no animation manager found; use RECORD (single clip)'); return; }
         window.clipRecording = true;
@@ -1513,7 +1557,7 @@
 
             var out = new Uint8ClampedArray(W * H * 4);
             for (var p = 0; p < W * H; p++) {
-                var metal = mData ? mData[p * 4] : 0;
+                var metal = mData ? mData[p * 4] : 255;   // no metal map: 255, the metallicFactor carries the flat value
                 var rough;
                 if (rData) rough = rData[p * 4];
                 else if (gData) rough = 255 - gData[p * 4];
@@ -1532,7 +1576,7 @@
             var ext  = useJpeg ? '.jpg' : '.png';
             var q    = useJpeg ? 0.92 : undefined;
             return new Promise(function (res) {
-                oc.toBlob(function (b) { res({ blob: b, ext: ext }); }, mime, q);
+                oc.toBlob(function (b) { res({ blob: b, ext: ext, hasM: !!mBmp, hasR: !!(rBmp || gBmp) }); }, mime, q);
             });
         });
     }
@@ -1558,7 +1602,9 @@
                     saveimagecache2['__merged_mr__:' + san] = {
                         name: san + '_MR',
                         fileExt: result.ext,
-                        dataURL: 'merged'
+                        dataURL: 'merged',
+                        hasM: result.hasM,
+                        hasR: result.hasR
                     };
                     log('merged MR:', meshName, '→', fname, result.blob.size + 'B');
                 }).catch(function (e) {
@@ -1605,7 +1651,10 @@
     }
 
     // Opacity comes either from the Opacity channel (blend) or the AlphaMask channel (cutout).
-    function opacitySource(cm) { return cm.Opacity || cm.AlphaMask || null; }
+    function opacitySource(cm) {
+        function real(c) { return c && (c.url || c.name) && !c.atlas; }
+        return real(cm.Opacity) ? cm.Opacity : (real(cm.AlphaMask) ? cm.AlphaMask : (cm.Opacity || cm.AlphaMask || null));
+    }
 
     function _mergeOneOpacity(cm) {
         var noColor = !cm.AlbedoPBR || !(cm.AlbedoPBR.url || cm.AlbedoPBR.name) || cm.AlbedoPBR.atlas;
@@ -1665,12 +1714,15 @@
             var opSrc = opacitySource(cm);
             if (!opSrc || !(opSrc.url || opSrc.name) || opSrc.atlas) return;
             var mch = getMaterialChannels(obj);
-            var opCh = mch && (cm.Opacity ? mch.Opacity : mch.AlphaMask);
+            var isOpacity = opSrc === cm.Opacity;
+            var opCh = mch && (isOpacity ? mch.Opacity : mch.AlphaMask);
             if (opCh && opCh.enable === false) return;   // texture present but the channel is switched off in the viewer
             var san = sanitizeTextureName(meshName);
             if (seen[san]) return;
             seen[san] = true;
-            _opacityKind[san] = cm.Opacity ? 'opacity' : 'alphamask';
+            // Opacity channel of a cutout type behaves like a mask (MASK), blend types use BLEND.
+            var oType = String((opCh && opCh.type) || '');
+            _opacityKind[san] = (isOpacity && !/mask|dither|cutout/i.test(oType)) ? 'opacity' : 'alphamask';
             if (!cm.AlbedoPBR || !(cm.AlbedoPBR.url || cm.AlbedoPBR.name) || cm.AlbedoPBR.atlas) {
                 _opacityNoColor[san] = true;   // opacity image only: merge into a white RGB + alpha texture
             } else if (normalizeUrl(opSrc.url) === normalizeUrl(cm.AlbedoPBR.url)) {
@@ -1979,11 +2031,16 @@
                                     var k3 = ek(tl[q * 3 + e3], tl[q * 3 + (e3 + 1) % 3]);
                                     if (ecount[k3] !== undefined) ecount[k3]++;
                                 }
+                                // A bridge joins real geometry at both ends of its open edge; a free thin card (wire,
+                                // grass, hair strip) does not, so it stays.
+                                var isCand = {}, onReal = new Uint8Array(nw);
+                                for (ci2 = 0; ci2 < cand.length; ci2++) isCand[cand[ci2]] = true;
+                                for (q = 0; q < nT; q++) if (!isCand[q]) { onReal[wid[tl[q * 3]]] = 1; onReal[wid[tl[q * 3 + 1]]] = 1; onReal[wid[tl[q * 3 + 2]]] = 1; }
                                 for (ci2 = 0; ci2 < cand.length; ci2++) {
                                     var cq2 = cand[ci2], cw = [tl[cq2 * 3], tl[cq2 * 3 + 1], tl[cq2 * 3 + 2]], open = false;
                                     for (e3 = 0; e3 < 3; e3++) {
                                         var ka = ek(cw[e3], cw[(e3 + 1) % 3]);
-                                        if (ecount[ka] === 1) open = true;
+                                        if (ecount[ka] === 1 && onReal[wid[cw[e3]]] && onReal[wid[cw[(e3 + 1) % 3]]]) open = true;
                                     }
                                     if (open) { drop[cq2] = true; nDrop++; }
                                 }
@@ -2006,7 +2063,8 @@
                         if (skippedP) warn('mesh', nm, ':', skippedP, 'non-triangle primitive(s) not exported');
                     }
                 }
-                if (mergedInd && !mergedInd.length) { warn('mesh', nm, ': no valid triangles after merge, exported without indices'); mergedInd = null; }
+                var noTris = false;
+                if (mergedInd && !mergedInd.length) { warn('mesh', nm, ': no valid triangles after merge, exported as points'); mergedInd = null; noTris = true; }
                 if (mergedInd) {
                     var mxm = 0;
                     for (var km = 0; km < mergedInd.length; km++) if (mergedInd[km] > mxm) mxm = mergedInd[km];
@@ -2015,14 +2073,19 @@
                     accs.push({ bufferView: addBV(idxM, 34963),
                                 componentType: idxM instanceof Uint32Array ? 5125 : 5123,
                                 count: mergedInd.length, type: 'SCALAR' });
-                } else if (mdl.primitives.length > 0 && mdl.primitives[0].indices && mdl.primitives[0].indices.length > 0) {
+                } else if (!noTris && mdl.primitives.length > 0 && mdl.primitives[0].indices && mdl.primitives[0].indices.length > 0) {
                     var ind = mdl.primitives[0].indices, mx = 0;
                     for (var k = 0; k < ind.length; k++) if (ind[k] > mx) mx = ind[k];
-                    var idxD = mx < 65535 ? new Uint16Array(ind) : new Uint32Array(ind);
-                    aI = accs.length;
-                    accs.push({ bufferView: addBV(idxD, 34963),
-                                componentType: idxD instanceof Uint32Array ? 5125 : 5123,
-                                count: ind.length, type: 'SCALAR' });
+                    if (mx >= vc) {
+                        warn('mesh', nm, ': indices out of range, exported as points');
+                        noTris = true;
+                    } else {
+                        var idxD = mx < 65535 ? new Uint16Array(ind) : new Uint32Array(ind);
+                        aI = accs.length;
+                        accs.push({ bufferView: addBV(idxD, 34963),
+                                    componentType: idxD instanceof Uint32Array ? 5125 : 5123,
+                                    count: ind.length, type: 'SCALAR' });
+                    }
                 }
 
                 var expected = vc * 4;
@@ -2081,7 +2144,7 @@
                 }
                 if (morphTargets.length) log('morph targets:', nm, morphTargets.length);
 
-                var primMode = mergedInd ? 4 : ((mdl.primitives.length > 0 && typeof mdl.primitives[0].mode === 'number') ? mdl.primitives[0].mode : 4);
+                var primMode = noTris ? 0 : mergedInd ? 4 : ((mdl.primitives.length > 0 && typeof mdl.primitives[0].mode === 'number') ? mdl.primitives[0].mode : 4);
                 var prim = { attributes: { POSITION: accPos }, mode: primMode };
                 if (aN >= 0) prim.attributes.NORMAL = aN;
                 if (aU >= 0) prim.attributes.TEXCOORD_0 = aU;
@@ -2121,8 +2184,8 @@
                 // ASCII-safe file name: no encoding issues in URIs or zip loaders.
                 var safeBase = String(t.name || 'texture').replace(/[^A-Za-z0-9._-]+/g, '_') || 'texture';
                 var safeName = safeBase + ext, sc = 1;
-                while (usedSafe[safeName]) safeName = safeBase + '_' + (sc++) + ext;
-                usedSafe[safeName] = true;
+                while (usedSafe[safeName.toLowerCase()]) safeName = safeBase + '_' + (sc++) + ext;   // case-insensitive file systems
+                usedSafe[safeName.toLowerCase()] = true;
                 var path = 'textures/' + safeName;
                 var ii = images.length;
                 imageKeys.push({ key: (t.name || 'texture') + ext, safe: safeName });
@@ -2274,13 +2337,16 @@
                     did.push('base color');
                 }
                 var mt = flat.MetalnessPBR, rg = flat.RoughnessPBR;
-                if (!pbr.metallicRoughnessTexture) {
-                    if (mt && mt.enable && typeof mt.factor === 'number' && !texd('MetalnessPBR')) {
-                        pbr.metallicFactor = CONFIG.FLAT_MR_FROM_VIEWER ? mt.factor : 0; did.push('metalness');
-                    }
-                    if (rg && rg.enable && typeof rg.factor === 'number' && !texd('RoughnessPBR')) {
-                        pbr.roughnessFactor = CONFIG.FLAT_MR_FROM_VIEWER ? rg.factor : 0.5; did.push('roughness');
-                    }
+                // Merged MR image: a missing map is stored as 255, so the factor carries the flat value.
+                var mrE = saveimagecache2['__merged_mr__:' + sanitizeTextureName(m.name)], mrTex = !!pbr.metallicRoughnessTexture;
+                var mFlat = !texd('MetalnessPBR') && !(mrTex && mrE && mrE.hasM);
+                var rFlat = !texd('RoughnessPBR') && !(mrTex && mrE && mrE.hasR);
+                if (mrTex && !(mrE && mrE.hasM)) pbr.metallicFactor = 0;   // non-metal unless a flat value follows
+                if (mt && mt.enable && typeof mt.factor === 'number' && mFlat) {
+                    pbr.metallicFactor = CONFIG.FLAT_MR_FROM_VIEWER ? mt.factor : 0; did.push('metalness');
+                }
+                if (rg && rg.enable && typeof rg.factor === 'number' && rFlat) {
+                    pbr.roughnessFactor = CONFIG.FLAT_MR_FROM_VIEWER ? rg.factor : 0.5; did.push('roughness');
                 }
                 var op = flat.Opacity || flat.AlphaMask;
                 if (op && op.enable && pbr.baseColorTexture && !m.alphaMode && _opacityOneFile[sanitizeTextureName(m.name)]) {
@@ -2297,7 +2363,7 @@
                     m.alphaMode = 'BLEND';
                     did.push('opacity ' + pbr.baseColorFactor[3].toFixed(2) + ' (' + opf.type + ')');
                 }
-                if (!pbr.metallicRoughnessTexture && mt && mt.enable === false && !texd('MetalnessPBR')) {
+                if (mt && mt.enable === false && mFlat) {
                     pbr.metallicFactor = 0; did.push('metalness off');
                 }
                 var em = flat.EmitColor;
@@ -2500,14 +2566,22 @@
                             var T = [], R = [], S = [], RV = [];
                             var prevQ = null, prevQV = null, prevV = null;   // hemisphere fix resets per clip, per joint
                             var tgtTRS = shearJ[jn] ? makeHelper(jn) : nIdx;   // sheared joint: T/R/S go on the helper
+                            var svdSeq = null;
+                            if (shearJ[jn]) {
+                                var smats = [];
+                                for (var sfx = 0; sfx < tr.frames.length; sfx++) {
+                                    var sfmx = tr.frames[sfx].meshes[mIdx], spx = sfmx && sfmx.palette;
+                                    smats.push((spx && spx.length >= (jn + 1) * 12) ? expandMat3x4(spx, jn) : identityMat4());
+                                }
+                                svdSeq = svdSequence(smats);
+                            }
                             for (var fi3 = 0; fi3 < tr.frames.length; fi3++) {
                                 var fmesh = tr.frames[fi3].meshes[mIdx];
                                 var pal = fmesh && fmesh.palette;
                                 var mPal = (pal && pal.length >= (jn + 1) * 12)
                                          ? expandMat3x4(pal, jn) : identityMat4();
                                 if (shearJ[jn]) {
-                                    var sd3 = svdDecompose(mPal, prevV);
-                                    prevV = sd3.V;
+                                    var sd3 = svdSeq[fi3];
                                     var qU = _quatCont(sd3.rotU, prevQ), qV = _quatCont(sd3.rotV, prevQV);
                                     prevQ = qU; prevQV = qV;
                                     T.push(sd3.translation[0], sd3.translation[1], sd3.translation[2]);
