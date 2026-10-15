@@ -45,6 +45,7 @@
         VERTEX_COLOR_SRGB: true,    // true: treat Sketchfab Color bytes as sRGB and write linear COLOR_0 (matches the viewer's look)
         EXPORT_SCALE: 1,            // uniform scale on the scene root (0.01 for models authored in centimetres)
         FLAT_MR_FROM_VIEWER: true,  // true: metalness/roughness of texture-less materials as the viewer shows them; false: neutral metal 0 / rough 0.5
+        DROP_STRIP_SLIVERS: true,   // drop long, near-zero-width bridging triangles inside triangle strips (the "stripes")
         DOUBLE_SIDED_AUTO: true,    // true: follow the viewer's Single Sided flag per material (cullFace != 0 -> single sided); false: use DOUBLE_SIDED for all
         DOUBLE_SIDED: true          // true: mark every material doubleSided (matches Sketchfab's default, Single Sided OFF); untick for single-sided export
     };
@@ -1081,6 +1082,22 @@
         row5b.appendChild(check5b);
         configDiv.appendChild(row5b);
 
+        var row5c = document.createElement('div');
+        row5c.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label5c = document.createElement('span');
+        label5c.textContent = 'Drop strip slivers (stripes):';
+        row5c.appendChild(label5c);
+        var check5c = document.createElement('input');
+        check5c.type = 'checkbox';
+        check5c.checked = !!CONFIG.DROP_STRIP_SLIVERS;
+        check5c.addEventListener('change', function () {
+            CONFIG.DROP_STRIP_SLIVERS = check5c.checked;
+            saveConfig();
+            log('drop strip slivers set to ' + check5c.checked);
+        });
+        row5c.appendChild(check5c);
+        configDiv.appendChild(row5c);
+
         var row6 = document.createElement('div');
         row6.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label6 = document.createElement('span');
@@ -1764,12 +1781,18 @@
                             var step = Math.max(1, Math.floor(nT / 2000));
                             for (q = 0; q < nT; q += step) lens.push(Math.max(el(tl[q * 3], tl[q * 3 + 1]), el(tl[q * 3 + 1], tl[q * 3 + 2]), el(tl[q * 3], tl[q * 3 + 2])));
                             lens.sort(function (a, b) { return a - b; });
-                            var med = lens[lens.length >> 1] || 0, lim = Math.max(20 * med, 0.05 * size), hits = 0, shown = 0;
+                            var med = lens[lens.length >> 1] || 0, lim = Math.max(20 * med, 0.05 * size), hits = 0, shown = 0, drop = {}, nDrop = 0;
                             for (q = 0; q < nT; q++) {
                                 var a0 = tl[q * 3], b0 = tl[q * 3 + 1], c0 = tl[q * 3 + 2];
                                 var L = Math.max(el(a0, b0), el(b0, c0), el(a0, c0));
                                 if (!(L > lim)) continue;
                                 hits++;
+                                // Bridging triangle of a strip join without repeated vertices: very long and almost no width.
+                                var ux = vv[b0 * 3] - vv[a0 * 3], uy = vv[b0 * 3 + 1] - vv[a0 * 3 + 1], uz = vv[b0 * 3 + 2] - vv[a0 * 3 + 2];
+                                var wx = vv[c0 * 3] - vv[a0 * 3], wy = vv[c0 * 3 + 1] - vv[a0 * 3 + 1], wz = vv[c0 * 3 + 2] - vv[a0 * 3 + 2];
+                                var cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx;
+                                var height = Math.sqrt(cx * cx + cy * cy + cz * cz) / L;   // 2*area / longest edge
+                                if (CONFIG.DROP_STRIP_SLIVERS && (pm === 5 || pm === 6) && height < 2 * med) { drop[q] = true; nDrop++; }
                                 if (shown++ < 3) {
                                     var at = tpos[q], ctx = [];
                                     for (var ci = Math.max(0, at - 5); ci <= Math.min(pi2.length - 1, at + 3); ci++) ctx.push((ci === at ? '*' : '') + pi2[ci]);
@@ -1777,7 +1800,13 @@
                                         ' (typical ' + med.toFixed(4) + ', mesh size ' + size.toFixed(3) + ') at index ' + at + ' of ' + pi2.length + ', indices around: ' + ctx.join(' '));
                                 }
                             }
-                            if (hits) warn('mesh ' + nm + ': ' + hits + ' long thin triangle(s) found (possible stripes)');
+                            if (nDrop) {
+                                var kept = [];
+                                for (q = 0; q < nT; q++) if (!drop[q]) kept.push(tl[q * 3], tl[q * 3 + 1], tl[q * 3 + 2]);
+                                tl = kept;
+                                log('mesh ' + nm + ': dropped ' + nDrop + ' bridging sliver triangle(s) from the strip (stripes)');
+                            }
+                            if (hits > nDrop) warn('mesh ' + nm + ': ' + (hits - nDrop) + ' long thin triangle(s) kept (not strip slivers)');
                         })();
                         if (oobN || degN) log('indices:', nm, 'mode ' + pm, pi2.length + ' indices ->', (tl.length / 3) + ' triangles, restart/out-of-range ' + oobN + ', degenerate ' + degN + ', vertices ' + vc);
                         triParts.push(tl);

@@ -317,3 +317,10 @@ Model-switch state reset (#1) still open: with pruning, leftovers no longer end 
 - Stripes: the `tiny primitive` diagnostic was replaced by a `long triangle:` diagnostic over every primitive (longest edge > 20x the mesh's
   typical edge and > 5% of its size), printing the triangle, its position in the index list and the indices around it, plus a per-mesh
   `long thin triangle(s) found` warning.
+
+## Round 11
+- Neon: opacity value works (`opacity 0.42 (alphaBlend)` on the tube material).
+- Stripes found: only in the transparent treehouse meshes. The strip jumps from one quad to the next without the usual repeated join
+  vertices (`... 12530 12531 *12535 12536 ...`), which makes two long, near-zero-width triangles bridging separate blocks (rainbow because
+  their UVs span the atlas). Now dropped when `DROP_STRIP_SLIVERS` (settings: "Drop strip slivers") is on: strip/fan triangle with longest
+  edge > max(20x typical edge, 5% of mesh size) and width (2*area/longest edge) < 2x typical edge. Log `dropped N bridging sliver triangle(s)`.
