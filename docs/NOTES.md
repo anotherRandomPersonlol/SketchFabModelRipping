@@ -308,3 +308,12 @@ Model-switch state reset (#1) still open: with pruning, leftovers no longer end 
   texture-less materials' flat colours into a generated colour atlas (`_isColorAtlas`, size 0x0, no image), so `_channelMapping` shows
   AlbedoPBR/EmitColor = 0 and the exporter treated them as textured and skipped the flat values. Now a channel only counts as textured with
   a real image (url/name) that is not the atlas; log `colour atlas / no image for ..., using flat material values`.
+
+## Round 10
+- Confirmed: treehouse holes fixed by the dedupe fingerprint (61 meshes instead of 27); neon colours come through via the colour-atlas
+  fallback; Patriot unchanged.
+- Neon tubes lacked transparency: Opacity given only as a value (no mask image) is now written as baseColorFactor alpha + BLEND
+  (log `opacity 0.xx (<type>)` in the flat values line).
+- Stripes: the `tiny primitive` diagnostic was replaced by a `long triangle:` diagnostic over every primitive (longest edge > 20x the mesh's
+  typical edge and > 5% of its size), printing the triangle, its position in the index list and the indices around it, plus a per-mesh
+  `long thin triangle(s) found` warning.

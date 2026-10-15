@@ -1729,9 +1729,9 @@
                         if (!pi2 || !pi2.length) return;
                         // Degenerate triangles (repeated index) are strip joins; drop them so
                         // Blender does not show long zero-area edges between distant vertices.
-                        var oobN = 0, degN = 0;
+                        var oobN = 0, degN = 0, tpos = [];
                         function addTri(a, b, c) {
-                            if (a !== b && b !== c && a !== c && a < vc && b < vc && c < vc) tl.push(a, b, c);
+                            if (a !== b && b !== c && a !== c && a < vc && b < vc && c < vc) { tl.push(a, b, c); tpos.push(t2); }
                             else if (a >= vc || b >= vc || c >= vc) oobN++;
                             else degN++;
                         }
@@ -1754,21 +1754,31 @@
                                 addTri(pi2[rs], pi2[t2 - 1], pi2[t2]);
                             }
                         } else { skippedP++; return; }
-                        if (pm === 4 && mdl.primitives.length > 1 && pi2.length <= 30 && tl.length) {
-                            // Diagnostic for stray long triangles: print the first triangles of tiny extra primitives.
-                            var vv = mdl.vertex, bmn = [1e30, 1e30, 1e30], bmx = [-1e30, -1e30, -1e30], bi, bk;
-                            for (bi = 0; bi < vc; bi++) for (bk = 0; bk < 3; bk++) {
-                                if (vv[bi * 3 + bk] < bmn[bk]) bmn[bk] = vv[bi * 3 + bk];
-                                if (vv[bi * 3 + bk] > bmx[bk]) bmx[bk] = vv[bi * 3 + bk];
+                        // Diagnostic for stray long thin triangles ("stripes"): flag triangles whose longest edge is
+                        // far above the typical edge of this mesh and print where they come from in the index list.
+                        if (tl.length) (function () {
+                            var vv = mdl.vertex, nT = tl.length / 3, q, lens = [], mn = [1e30, 1e30, 1e30], mx = [-1e30, -1e30, -1e30];
+                            function el(i, j) { var dx = vv[i * 3] - vv[j * 3], dy = vv[i * 3 + 1] - vv[j * 3 + 1], dz = vv[i * 3 + 2] - vv[j * 3 + 2]; return Math.sqrt(dx * dx + dy * dy + dz * dz); }
+                            for (q = 0; q < vc; q++) for (var ax = 0; ax < 3; ax++) { var cv = vv[q * 3 + ax]; if (cv < mn[ax]) mn[ax] = cv; if (cv > mx[ax]) mx[ax] = cv; }
+                            var size = Math.sqrt(Math.pow(mx[0] - mn[0], 2) + Math.pow(mx[1] - mn[1], 2) + Math.pow(mx[2] - mn[2], 2));
+                            var step = Math.max(1, Math.floor(nT / 2000));
+                            for (q = 0; q < nT; q += step) lens.push(Math.max(el(tl[q * 3], tl[q * 3 + 1]), el(tl[q * 3 + 1], tl[q * 3 + 2]), el(tl[q * 3], tl[q * 3 + 2])));
+                            lens.sort(function (a, b) { return a - b; });
+                            var med = lens[lens.length >> 1] || 0, lim = Math.max(20 * med, 0.05 * size), hits = 0, shown = 0;
+                            for (q = 0; q < nT; q++) {
+                                var a0 = tl[q * 3], b0 = tl[q * 3 + 1], c0 = tl[q * 3 + 2];
+                                var L = Math.max(el(a0, b0), el(b0, c0), el(a0, c0));
+                                if (!(L > lim)) continue;
+                                hits++;
+                                if (shown++ < 3) {
+                                    var at = tpos[q], ctx = [];
+                                    for (var ci = Math.max(0, at - 5); ci <= Math.min(pi2.length - 1, at + 3); ci++) ctx.push((ci === at ? '*' : '') + pi2[ci]);
+                                    log('long triangle:', nm, 'mode ' + pm, 'tri (' + a0 + ',' + b0 + ',' + c0 + ') longest edge ' + L.toFixed(3) +
+                                        ' (typical ' + med.toFixed(4) + ', mesh size ' + size.toFixed(3) + ') at index ' + at + ' of ' + pi2.length + ', indices around: ' + ctx.join(' '));
+                                }
                             }
-                            var bd = Math.sqrt(Math.pow(bmx[0] - bmn[0], 2) + Math.pow(bmx[1] - bmn[1], 2) + Math.pow(bmx[2] - bmn[2], 2));
-                            function edgeLen(i, j) { return Math.sqrt(Math.pow(vv[i * 3] - vv[j * 3], 2) + Math.pow(vv[i * 3 + 1] - vv[j * 3 + 1], 2) + Math.pow(vv[i * 3 + 2] - vv[j * 3 + 2], 2)); }
-                            for (bi = 0; bi < tl.length && bi < 9; bi += 3) {
-                                log('tiny primitive:', nm, 'tri (' + tl[bi] + ',' + tl[bi + 1] + ',' + tl[bi + 2] + ') edges ' +
-                                    edgeLen(tl[bi], tl[bi + 1]).toFixed(3) + ' ' + edgeLen(tl[bi + 1], tl[bi + 2]).toFixed(3) + ' ' + edgeLen(tl[bi], tl[bi + 2]).toFixed(3) +
-                                    ' mesh size ' + bd.toFixed(3) + ' vertices ' + vc);
-                            }
-                        }
+                            if (hits) warn('mesh ' + nm + ': ' + hits + ' long thin triangle(s) found (possible stripes)');
+                        })();
                         if (oobN || degN) log('indices:', nm, 'mode ' + pm, pi2.length + ' indices ->', (tl.length / 3) + ' triangles, restart/out-of-range ' + oobN + ', degenerate ' + degN + ', vertices ' + vc);
                         triParts.push(tl);
                     });
@@ -2058,6 +2068,14 @@
                     m.alphaMode = isBlend ? 'BLEND' : 'MASK';
                     if (!isBlend) m.alphaCutoff = 0.5;
                     did.push('opacity ' + m.alphaMode + ' (' + op.type + ')');
+                }
+                // Opacity given as a plain value (no mask image): use it as base colour alpha.
+                var opf = flat.Opacity;
+                if (opf && opf.enable && !m.alphaMode && !texd('Opacity') && typeof opf.factor === 'number' && opf.factor < 0.999) {
+                    if (!pbr.baseColorFactor) pbr.baseColorFactor = [1, 1, 1, 1];
+                    pbr.baseColorFactor[3] = Math.max(0, Math.min(1, opf.factor));
+                    m.alphaMode = 'BLEND';
+                    did.push('opacity ' + pbr.baseColorFactor[3].toFixed(2) + ' (' + opf.type + ')');
                 }
                 if (!pbr.metallicRoughnessTexture && mt && mt.enable === false && !texd('MetalnessPBR')) {
                     pbr.metallicFactor = 0; did.push('metalness off');
