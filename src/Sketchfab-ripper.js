@@ -308,7 +308,10 @@
                     var imM = packed.texture._imageModel;
                     map[chName] = {
                         url : img && (img._url || img.url),
-                        name: imM && imM.attributes && imM.attributes.name
+                        name: imM && imM.attributes && imM.attributes.name,
+                        // Texture-less materials: Sketchfab packs the flat colours into a generated
+                        // colour atlas (no image file); the channel then only looks textured.
+                        atlas: (packed.texture._isColorAtlas === true || tex._isColorAtlas === true)
                     };
                 }
             }
@@ -383,6 +386,16 @@
     // ====================================================================
     // attachbody
     // ====================================================================
+    function geomKey(o) {
+        var v = o && o._attributes && o._attributes.Vertex && o._attributes.Vertex._elements;
+        if (!v || !v.length) return '';
+        var n = v.length, parts = [n], k;
+        for (k = 0; k < 16; k++) parts.push(v[Math.floor(k * (n - 1) / 15)]);
+        var pr = o._primitives && o._primitives[0];
+        parts.push(pr && pr.indices && pr.indices._elements ? pr.indices._elements.length : -1);
+        return parts.join(',');
+    }
+
     window.attachbody = function (obj) {
         try {
             if (!obj || obj._faked === true) return;
@@ -402,6 +415,9 @@
             var vcount = (obj._attributes && obj._attributes.Vertex &&
                         obj._attributes.Vertex._elements)
                         ? obj._attributes.Vertex._elements.length : 0;
+            // Name + vertex count alone is not enough: big models are split into unnamed chunks that
+            // often have the same vertex count (e.g. 65532), so also compare sampled vertex data.
+            var gk = geomKey(obj);
             for (var i = 0; i < window.allmodel.length; i++) {
                 var ex = window.allmodel[i];
                 if (!ex) continue;
@@ -410,7 +426,7 @@
                 var exVcount = (ex._attributes && ex._attributes.Vertex &&
                                 ex._attributes.Vertex._elements)
                             ? ex._attributes.Vertex._elements.length : 0;
-                if (exVcount === vcount) {
+                if (exVcount === vcount && geomKey(ex) === gk) {
                     // Same name + vertex count but a different world position may be a
                     // genuine second instance (e.g. repeated parts), not a re-instantiation.
                     // Animated parents also move a mesh, so by default this only warns and
@@ -1910,16 +1926,26 @@
             mats.forEach(function (m, mi) {
                 var chan = matsChannelInfo[mi] || {};
                 (function () {
-                    var fl = matsFlat[mi], mp = fl && fl.__map, lost = [];
+                    var fl = matsFlat[mi], mp = fl && fl.__map, lost = [], atl = [];
                     if (mp) for (var mk2 in mp) {
                         if (!mp.hasOwnProperty(mk2) || !(mp[mk2] >= 0) || mk2 === 'Inspector' || mk2 === 'Matcap') continue;
                         var inf = chan[mk2];
-                        if (!inf || findTexIdx(inf) === undefined) lost.push(mk2);
+                        if (!inf || inf.atlas || !(inf.url || inf.name)) { atl.push(mk2); continue; }
+                        if (findTexIdx(inf) === undefined) lost.push(mk2);
                     }
                     if (lost.length) warn('material ' + m.name + ': channels with a texture in the viewer but not in the export: ' + lost.join(', '));
+                    if (atl.length) log('material ' + m.name + ': colour atlas / no image for ' + atl.join(', ') + ', using flat material values');
                 })();
             });
-            if (!textures.length && mats.length) warn('no textures were captured at all: reload the page, wait until the model is fully shown, then export (see tools/probe-textures.js if it keeps happening)');
+            var anyRealTex = false;
+            for (var cmi in matsChannelInfo) {
+                if (!matsChannelInfo.hasOwnProperty(cmi) || !matsChannelInfo[cmi]) continue;
+                for (var ck in matsChannelInfo[cmi]) {
+                    var ci = matsChannelInfo[cmi][ck];
+                    if (matsChannelInfo[cmi].hasOwnProperty(ck) && ci && (ci.url || ci.name) && !ci.atlas) anyRealTex = true;
+                }
+            }
+            if (!textures.length && mats.length && anyRealTex) warn('no textures were captured at all: reload the page, wait until the model is fully shown, then export (see tools/probe-textures.js if it keeps happening)');
 
             if (textures.length) {
                 mats.forEach(function (m, mi) {
@@ -1999,8 +2025,11 @@
                 var did = [];
                 var cmap = flat.__map;
                 function texd(n) {
-                    if (cmap && typeof cmap[n] === 'number') return cmap[n] >= 0;
-                    return !!(chan[n] && (chan[n].url || chan[n].name));
+                    // A channel counts as textured only when it has a real image (url or name) that is not
+                    // the generated colour atlas; otherwise the flat material value is the best data we have.
+                    var real = !!(chan[n] && (chan[n].url || chan[n].name) && !chan[n].atlas);
+                    if (cmap && typeof cmap[n] === 'number') return cmap[n] >= 0 && real;
+                    return real;
                 }
                 var chKeys = [];
                 for (var chk in chan) if (chan.hasOwnProperty(chk) && (chan[chk].url || chan[chk].name)) chKeys.push(chk);

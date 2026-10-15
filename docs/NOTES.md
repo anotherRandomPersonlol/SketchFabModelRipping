@@ -298,3 +298,13 @@ Model-switch state reset (#1) still open: with pruning, leftovers no longer end 
   `meshes:` in the panel. Stray long lines probably come from the lone `4x3` primitives; the export now logs `tiny primitive:` edge lengths for them.
 - Neon sign: the textures' `_image` is null (unref'd after upload, `_unrefImageDataAfterApply`), so nothing is captured through getResourceImage.
   `tools/probe-texture-gpu.js` checks whether pixels can be read back from the GPU texture instead.
+
+## Round 9 (findings confirmed from logs, fixes unverified)
+- Treehouse "tiny primitives" are real small triangles (edges ~0.005-0.007), not the stray lines.
+- Treehouse holes: attachbody deduped meshes by name + vertex count. The treehouse chunks are unnamed (exported as mesh_N) and Sketchfab
+  splits big models into chunks that often share a vertex count (65532 = 16383 full quads), so real chunks were folded into one.
+  Dedupe now also compares a sampled vertex fingerprint (`geomKey`: count + 16 sampled floats + first index count).
+- Small neon sign: no image textures at all (source GLB checked in Blender: white base, metal 1, rough 1, red emission). Sketchfab packs
+  texture-less materials' flat colours into a generated colour atlas (`_isColorAtlas`, size 0x0, no image), so `_channelMapping` shows
+  AlbedoPBR/EmitColor = 0 and the exporter treated them as textured and skipped the flat values. Now a channel only counts as textured with
+  a real image (url/name) that is not the atlas; log `colour atlas / no image for ..., using flat material values`.
