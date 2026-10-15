@@ -15,7 +15,7 @@ animations, and textures preserved. For personal archival and 3D research.
 - Flat material values for texture-less models (colour, metalness, roughness, emission)
 - Vertex colours (sRGB converted to linear), multiple primitives per mesh, quads and strips
 - Double sided follows each material's Single Sided flag (optional override)
-- Settings panel (gear icon): export scale, double sided, vertex colour conversion and more
+- Settings panel (gear icon): record FPS (every frame, 60, 30, 24, 15), export scale, double sided, vertex colour conversion and more
 
 ## Install
 1. Install Tampermonkey
@@ -32,6 +32,7 @@ animations, and textures preserved. For personal archival and 3D research.
 - Textures are only captured when the viewer draws them. Wait for the model to finish loading; slow machines may need a longer texture wait
 - Tangents are not exported (viewers generate them from the normal map)
 - Reload the page if the panel doesn't appear on first load
+- Keep the Sketchfab tab visible while recording. A hidden or minimised tab pauses rendering, so frames are skipped and clips can come out short
 
 ## Credits
 - Original injection framework: Risk

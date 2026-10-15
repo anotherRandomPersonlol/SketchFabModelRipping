@@ -37,7 +37,8 @@
         MAX_RECORD_SECONDS: 12,
         AUTO_RELOAD_ON_FAILURE: true,
         MR_TEXTURE_FORMAT: 'jpeg',  // 'jpeg' (small) or 'png' (lossless)
-        CLIP_FPS: 30,               // sample rate for multi-clip recording
+        CLIP_FPS: 30,               // (unused, kept for old saved settings)
+        RECORD_FPS: 0,              // recording sample rate: 0 = every rendered frame, or 60 / 30 / 24 / 15
         CLIP_SETTLE_FRAMES: 2,      // rAF ticks to wait after seeking to a clip's start
         DEDUPE_STRICT_WORLD: false, // true: keep same-name meshes at different positions
         REST_POSE_SOURCE: 'clip0',  // joint rest pose: 'clip0' (first frame of first clip) or 'static' (viewer's Static Pose)
@@ -618,6 +619,12 @@
         return { meshes: meshesOut };
     }
 
+    // True when a frame at time t should be kept for the chosen RECORD_FPS (0 = keep every frame).
+    function fpsDue(t, lastT) {
+        var f = +CONFIG.RECORD_FPS || 0;
+        return lastT < 0 || f <= 0 || t - lastT >= 1 / f - 1e-4;
+    }
+
     // Single-clip RECORD with exactly one active clip: restart that clip and record
     // exactly one loop (0..duration) automatically. Returns false when that is not
     // possible, so the caller falls back to the manual timed recording.
@@ -675,8 +682,10 @@
         function tick() {
             if (!window.animationRecording) return;
             var t = performance.now() / 1000 - window.recordingStartTime;
-            var snap = snapshotFrame();
-            window.recordedFrames.push({ time: t, meshes: snap.meshes });
+            var rf = window.recordedFrames;
+            if (fpsDue(t, rf.length ? rf[rf.length - 1].time : -1)) {
+                rf.push({ time: t, meshes: snapshotFrame().meshes });
+            }
             if (t >= CONFIG.MAX_RECORD_SECONDS) { stopRecording(); return; }
             window.recordingRafId = requestAnimationFrame(tick);
         }
@@ -881,7 +890,7 @@
                 return;
             }
             // Keep times strictly increasing (a paused/stuck clock repeats values).
-            if (t > lastT) {
+            if (t > lastT && fpsDue(t, lastT)) {
                 frames.push({ time: t, meshes: snapshotFrame().meshes });
                 lastT = t;
             }
@@ -995,7 +1004,7 @@
         setRecAllLabel('CANCEL');
         var wasPaused = mgr._pause;
         log('record-all started, clips in manager: ' + getClipCount() +
-            ', fps ' + CONFIG.CLIP_FPS + ' (keep this tab visible)');
+            ', fps ' + (+CONFIG.RECORD_FPS > 0 ? CONFIG.RECORD_FPS : 'every frame') + ' (keep this tab visible: a hidden tab pauses rendering and frames are skipped)');
         var safeOrigIdx = 0;
         try {
         discoverAnimationClips(function (defs, origIdx) {
@@ -1042,6 +1051,13 @@
     // ====================================================================
     // UI panel
     // ====================================================================
+    // A hidden tab stops requestAnimationFrame: the viewer stops rendering and recording skips frames.
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden && (window.animationRecording || window.clipRecording)) {
+            warn('tab hidden during recording: rendering pauses, frames will be skipped or the clip may be truncated; keep the tab visible');
+        }
+    });
+
     function addbtnfunc() {
         if (button_dw) return;
         if (!document.body) { setTimeout(addbtnfunc, 500); return; }
@@ -1149,6 +1165,27 @@
         });
         row1.appendChild(input1);
         configDiv.appendChild(row1);
+
+        var rowF = document.createElement('div');
+        rowF.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var labelF = document.createElement('span');
+        labelF.textContent = 'Record FPS:';
+        rowF.appendChild(labelF);
+        var selF = document.createElement('select');
+        selF.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
+        [[0, 'Max (every frame)'], [60, '60'], [30, '30'], [24, '24'], [15, '15']].forEach(function (o) {
+            var op = document.createElement('option');
+            op.value = String(o[0]); op.textContent = o[1];
+            if ((+CONFIG.RECORD_FPS || 0) === o[0]) op.selected = true;
+            selF.appendChild(op);
+        });
+        selF.addEventListener('change', function () {
+            CONFIG.RECORD_FPS = parseInt(selF.value, 10) || 0;
+            saveConfig();
+            log('record fps set to ' + (CONFIG.RECORD_FPS || 'every frame'));
+        });
+        rowF.appendChild(selF);
+        configDiv.appendChild(rowF);
 
         var row2 = document.createElement('div');
         row2.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';

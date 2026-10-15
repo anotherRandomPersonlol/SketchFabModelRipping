@@ -355,3 +355,11 @@ Model-switch state reset (#1) still open: with pruning, leftovers no longer end 
   zero-scale cases included). Continuity across frames: V columns matched to the previous frame (order + sign), previous basis kept when the
   scale is uniform, quaternion hemisphere fix for U and V. Channels: helper T/R/S + joint rotation. Log: `skin N: k joint(s) with shear ...
   stored exactly as helper node + joint (U*S*Vt)`. Joints without shear keep the single-node TRS path.
+
+## Round 15
+- Girl face confirmed much better (8 sheared joints per body skin now stored via helper nodes; residual max 2.3% before the fix path,
+  "only slightly noticeable"); Patriot fine.
+- New setting "Record FPS" (`RECORD_FPS`, 0 = every rendered frame (default, unchanged behaviour), 60/30/24/15). `fpsDue()` throttles both the
+  clip recorder and the manual RECORD loop. The old `CLIP_FPS` key stays only so saved settings still load (it was never applied).
+- Hidden tab: a `visibilitychange` listener warns when the tab is hidden during any recording (rAF pauses, frames skipped / clip truncated);
+  README lists it under known limitations.
