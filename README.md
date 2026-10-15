@@ -75,7 +75,7 @@ Click the gear icon in the panel. The script keeps your settings for the next vi
 ## Open the export
 
 - **glTF viewer**: drop the GLB file on [gltf-viewer.donmccurdy.com](https://gltf-viewer.donmccurdy.com/). This viewer shows the export exactly.
-- **Blender**: use **File > Import > glTF 2.0**. Blender bones cannot keep shear, so faces with complex expressions can show small errors. Other programs that read glTF show the correct result.
+- **Blender**: use **File > Import > glTF 2.0** with the default options.
 - **Validator**: drop the GLB file on the [glTF validator](https://github.khronos.org/glTF-Validator/) to check it.
 
 ## Known limitations
