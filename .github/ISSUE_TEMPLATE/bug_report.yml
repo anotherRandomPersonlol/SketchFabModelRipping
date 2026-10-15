@@ -1,0 +1,115 @@
+name: Model does not export correctly
+description: Report a model that exports with missing, wrong or broken parts.
+title: "[Bug] <model name>: <short problem>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when a model exports with a problem. Give all the data that the form asks for. Without the model link and the console log, we cannot find the cause.
+
+        Before you send the report:
+        1. Install the latest version of the script.
+        2. Reload the Sketchfab page.
+        3. Wait until the model is fully visible.
+        4. Export the model again.
+        5. Make sure that the problem is still there.
+  - type: input
+    id: model
+    attributes:
+      label: Model link
+      description: Paste the Sketchfab link of the model.
+      placeholder: https://sketchfab.com/3d-models/...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Script version
+      description: Find the version in Tampermonkey, in the "@version" line of the script.
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and userscript manager
+      placeholder: "Chrome 141, Tampermonkey 5.3"
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Changed settings
+      description: List the settings in the gear panel that you changed. Write "none" if you use the default settings.
+      placeholder: "Double sided: off, Record FPS: 30"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Problem area
+      multiple: true
+      options:
+        - Geometry (missing parts, holes, stray triangles)
+        - Textures or materials (wrong colors, missing images, transparency)
+        - Animation (wrong motion, missing clips, distortion)
+        - Skeleton or skinning
+        - Panel, buttons or recording
+        - Browser freeze, crash or high memory use
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Write one action on each line.
+      placeholder: |
+        1. Open the model page.
+        2. Click RECORD.
+        3. Click DOWNLOAD GLB.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result and actual result
+      description: Tell what you see on Sketchfab and what you see in the export.
+    validations:
+      required: true
+  - type: dropdown
+    id: viewer
+    attributes:
+      label: Where you see the problem
+      multiple: true
+      options:
+        - glTF viewer (gltf-viewer.donmccurdy.com)
+        - Blender
+        - Other program
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Console log
+      description: |
+        1. Open the developer tools (F12) on the Sketchfab page.
+        2. Open the Console tab.
+        3. Type `[Ripper]` in the filter box.
+        4. Export the model again.
+        5. Copy all the lines and paste them here.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: validator
+    attributes:
+      label: glTF validator report (optional)
+      description: Drop the exported .glb file on https://github.khronos.org/glTF-Validator/ and paste the errors and warnings.
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Attach one screenshot from Sketchfab and one from the export, from the same view if possible.

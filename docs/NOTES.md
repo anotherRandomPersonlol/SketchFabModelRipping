@@ -1,4 +1,36 @@
-# Technical notes — Sketchfab viewer internals
+# Technical notes: Sketchfab viewer internals
+
+Read the summary first. The sections after it record what we found and why the exporter works the way it does, in the order we found it. Later rounds can override earlier ones.
+
+## Summary (v1.1.0)
+
+### How the script works
+1. `onbeforescriptexecute` (interceptor at the end of the file) patches the viewer bundle once per bundle URL. The patches add three hooks: `drawhookcanvas` and `drawhookimg` capture textures when the viewer uploads and draws them, and `attachbody` collects every drawn geometry into `window.allmodel`.
+2. `attachbody` merges a geometry only when it is the same object drawn again (name, vertex count and a sampled vertex fingerprint all match).
+3. Recording (`recordClipRealtime`, manual RECORD) stores a `snapshotFrame()` per kept frame: world matrix, skinning palette and morph weights of every mesh. `RECORD_FPS` thins the frames.
+4. Export (`downloadGLB`): wait for textures, merge metallic-roughness and opacity images, then `_downloadGLBSync` builds the glTF:
+   - geometry: all triangle primitives merged into one triangle list, strips and fans converted, bridging slivers dropped;
+   - materials: textures by channel, flat values from the material model for channels without a real image (colour atlas counts as no image), opacity merged into base colour alpha;
+   - skins: one flat joint per palette entry under `skel_root_<mesh>` (identity inverse bind matrices). Joints with shear get a helper parent (SVD: helper = T*U*S, joint = V^T);
+   - animation: per clip, per joint T/R/S channels (helper and joint for sheared joints), hold keys for show/hide-by-scale switches;
+   - unused textures pruned, file names made ASCII-safe, GLB plus textures zipped.
+
+### Rules that came out of testing
+- Real-time recording is the only reliable path; seeking while paused updates palettes too sparsely.
+- Textures exist only after the viewer draws them. Wait for the model before exporting.
+- `_channelMapping >= 0` does not mean a real texture: texture-less materials point at a generated colour atlas.
+- `cullFace` 1029 (GL_BACK) = Single Sided ON, 0 = OFF. Sketchfab's default is OFF.
+- Vertex colour bytes are sRGB; glTF COLOR_0 is linear.
+- Big models come in unnamed chunks of up to 65532 vertices; never dedupe by name and vertex count alone.
+- Skinning palettes can contain shear; TRS alone cannot store it.
+- Expression rigs hide parts by scaling bones to 0; keep zero scale and keep the switch instant.
+
+### Testing
+- Acceptance: the glTF validator has no errors, and the glTF viewer (three.js) looks like Sketchfab. Blender approximates sheared bones, so small face artifacts there are expected.
+- Test models used: MIM-104 Patriot (skinned, multi-clip, textures, glass), VertexColor Light Ball, gold ring (no textures), High Detail Elm Tree (alpha mask), Treehouse (huge voxel model, strips), Small neon sign (colour atlas, emission, opacity value), Blu anime girl (outline meshes, expression rig, shear).
+- Probes in `tools/` are read-only console scripts for the viewer frame.
+
+## History
 
 ## What we reverse-engineered
 
