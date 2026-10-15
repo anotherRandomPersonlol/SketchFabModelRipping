@@ -258,3 +258,16 @@ Log `bundle already patched, dropping duplicate` means the guard fired.
 is NOT marked doubleSided (setting "Auto single sided", `DOUBLE_SIDED_AUTO`, default on). Needs confirming on the
 anime girl: the outline mesh should log a non-zero cullFace and the others 0. If the girl logs 0 everywhere, the flag
 lives somewhere else and needs a probe.
+
+## External review triage (round 5)
+A fresh-Claude read-only review gave 30 findings; each was checked against the code.
+Fixed: bundle fetch error handling (original script keeps running on failure), RE lastIndex reset, no closing
+blend frame on cancelled/truncated clip records, unguarded rest0 for late meshes, vanished clip list item, 16-bit
+index limit (< 65535), width-0 loop hang, point mode no longer treated as triangles, empty/out-of-range indices
+dropped, texture URIs percent-encoded, images only listed when the file exists, config values type/finite checked,
+reload-loop guard when sessionStorage rejects writes, flat colour/emission clamped to 0..1, RECORD ALL CLIPS clears old
+single recording, export re-entry and export-during-recording guard, zip name sanitised plus .catch.
+Deferred (judged low value or risky without a live test): model-switch state reset (#1), mid-recording mesh
+carry-forward (#5), URL-tail texture lookup / MR merge by URL (#7, #8), duplicate-mesh-name materials (#9), CLIP_FPS throttling (#13),
+memory release of bitmaps/dataURL (#12), morph target index remap (#19), morph min/max float32 (#20), mirrored-scale decompose (#22),
+O(n^2) parent search (#25), manager cache re-validation (#15), normal/UV length guards (#18).

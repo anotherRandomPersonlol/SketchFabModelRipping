@@ -56,7 +56,9 @@
             if (!saved) return;
             var parsed = JSON.parse(saved);
             for (var k in parsed) {
-                if (parsed.hasOwnProperty(k) && CONFIG.hasOwnProperty(k)) {
+                if (parsed.hasOwnProperty(k) && CONFIG.hasOwnProperty(k)
+                    && typeof parsed[k] === typeof CONFIG[k]
+                    && (typeof parsed[k] !== 'number' || isFinite(parsed[k]))) {
                     CONFIG[k] = parsed[k];
                 }
             }
@@ -325,7 +327,7 @@
                 var url_image = e.url, max_size = 0, obr = e;
                 imagemodel.attributes.images.forEach(function (img) {
                     var ok = alpha === 'A' ? img.options.format === alpha : true;
-                    var d = img.width; while (d % 2 === 0) d = d / 2;
+                    var d = img.width; while (d > 0 && d % 2 === 0) d = d / 2;
                     if (img.size > max_size && ok && d === 1) {
                         max_size = img.size; url_image = img.url; obr = img;
                     }
@@ -647,6 +649,7 @@
             selectClipItem(k, function (ok) {
                 if (!ok) { next(); return; }
                 var li = getClipItems()[k];
+                if (!li) { warn('clip list item ' + k + ' vanished during discovery, skipped'); next(); return; }
                 var name = (li.textContent || '').trim().replace(/\s+/g, ' ');
                 var act = activeClipUids(mgr);
                 if (act.length === 1) {
@@ -711,7 +714,7 @@
         function finish(why) {
             if (finished) return;
             finished = true;
-            if (frames.length && frames[frames.length - 1].time < def.duration - 1e-4) {
+            if (!why && frames.length && frames[frames.length - 1].time < def.duration - 1e-4) {
                 frames.push({ time: def.duration, meshes: frames[0].meshes });
             }
             if (why) warn('clip ' + def.name + ': ' + why + ', frames=' + frames.length);
@@ -851,6 +854,7 @@
         if (!mgr) { warn('no animation manager found; use RECORD (single clip)'); return; }
         window.clipRecording = true;
         window.clips = [];
+        window.recordedFrames = [];   // a stale single recording must not win over the new clips
         window.clipCancel = false;
         setRecAllLabel('CANCEL');
         var wasPaused = mgr._pause;
@@ -1184,7 +1188,7 @@
             try { already = sessionStorage.getItem('ripper_reloaded'); } catch (e) { already = '1'; }
             if (already) return;
             if (!CONFIG.AUTO_RELOAD_ON_FAILURE) return;
-            try { sessionStorage.setItem('ripper_reloaded', '1'); } catch (e) {}
+            try { sessionStorage.setItem('ripper_reloaded', '1'); if (sessionStorage.getItem('ripper_reloaded') !== '1') return; } catch (e) { return; }
             log('no anchors after 12s, auto-reloading once');
             location.reload();
         }, 12000);
@@ -1553,11 +1557,17 @@
     // ====================================================================
     // GLB Export
     // ====================================================================
+    var _exporting = false;
+
     function downloadGLB() {
+        if (_exporting) { warn('export already running, ignored'); return; }
+        if (window.animationRecording || window.clipRecording) { warn('recording is still running: press STOP first (export would miss the animation)'); return; }
+        _exporting = true;
         log('export started');
         waitForTextures().then(mergeMRTextures).then(mergeOpacityTextures).then(function () {
             _downloadGLBSync();
         }).catch(function (e) {
+            _exporting = false;
             err('export failed:', e.message, e.stack);
         });
     }
@@ -1686,12 +1696,12 @@
                 if (mdl.primitives.length > 0) {
                     var triParts = [], skippedP = 0, modeLog = [];
                     mdl.primitives.forEach(function (pr) {
-                        var pm = pr.mode || 4, pi2 = pr.indices, tl = [], t2;
+                        var pm = (pr.mode === undefined || pr.mode === null) ? 4 : pr.mode, pi2 = pr.indices, tl = [], t2;
                         modeLog.push(pm + 'x' + (pi2 ? pi2.length : 0));
                         if (!pi2 || !pi2.length) return;
                         // Degenerate triangles (repeated index) are strip joins; drop them so
                         // Blender does not show long zero-area edges between distant vertices.
-                        function addTri(a, b, c) { if (a !== b && b !== c && a !== c) tl.push(a, b, c); }
+                        function addTri(a, b, c) { if (a !== b && b !== c && a !== c && a < vc && b < vc && c < vc) tl.push(a, b, c); }
                         if (pm === 4) {
                             for (t2 = 0; t2 + 2 < pi2.length; t2 += 3) addTri(pi2[t2], pi2[t2 + 1], pi2[t2 + 2]);
                         } else if (pm === 5) {
@@ -1711,18 +1721,19 @@
                         if (skippedP) warn('mesh', nm, ':', skippedP, 'non-triangle primitive(s) not exported');
                     }
                 }
+                if (mergedInd && !mergedInd.length) { warn('mesh', nm, ': no valid triangles after merge, exported without indices'); mergedInd = null; }
                 if (mergedInd) {
                     var mxm = 0;
                     for (var km = 0; km < mergedInd.length; km++) if (mergedInd[km] > mxm) mxm = mergedInd[km];
-                    var idxM = mxm <= 65535 ? new Uint16Array(mergedInd) : new Uint32Array(mergedInd);
+                    var idxM = mxm < 65535 ? new Uint16Array(mergedInd) : new Uint32Array(mergedInd);
                     aI = accs.length;
                     accs.push({ bufferView: addBV(idxM, 34963),
                                 componentType: idxM instanceof Uint32Array ? 5125 : 5123,
                                 count: mergedInd.length, type: 'SCALAR' });
-                } else if (mdl.primitives.length > 0 && mdl.primitives[0].indices) {
+                } else if (mdl.primitives.length > 0 && mdl.primitives[0].indices && mdl.primitives[0].indices.length > 0) {
                     var ind = mdl.primitives[0].indices, mx = 0;
                     for (var k = 0; k < ind.length; k++) if (ind[k] > mx) mx = ind[k];
-                    var idxD = mx <= 65535 ? new Uint16Array(ind) : new Uint32Array(ind);
+                    var idxD = mx < 65535 ? new Uint16Array(ind) : new Uint32Array(ind);
                     aI = accs.length;
                     accs.push({ bufferView: addBV(idxD, 34963),
                                 componentType: idxD instanceof Uint32Array ? 5125 : 5123,
@@ -1785,7 +1796,7 @@
                 }
                 if (morphTargets.length) log('morph targets:', nm, morphTargets.length);
 
-                var primMode = mergedInd ? 4 : ((mdl.primitives.length > 0 && mdl.primitives[0].mode) ? mdl.primitives[0].mode : 4);
+                var primMode = mergedInd ? 4 : ((mdl.primitives.length > 0 && typeof mdl.primitives[0].mode === 'number') ? mdl.primitives[0].mode : 4);
                 var prim = { attributes: { POSITION: accPos }, mode: primMode };
                 if (aN >= 0) prim.attributes.NORMAL = aN;
                 if (aU >= 0) prim.attributes.TEXCOORD_0 = aU;
@@ -1821,7 +1832,8 @@
                 var t = saveimagecache2[key];
                 if (!t || !t.dataURL) continue;
                 var ext = t.fileExt || '.png';
-                var path = 'textures/' + (t.name || 'texture') + ext;
+                if (!objects[(t.name || 'texture') + ext]) { warn('texture file missing, not referenced: ' + (t.name || 'texture') + ext); continue; }
+                var path = 'textures/' + encodeURIComponent(t.name || 'texture') + ext;
                 var ii = images.length;
                 images.push({ uri: path });
                 textures.push({ source: ii });
@@ -1945,7 +1957,7 @@
                 var alb = flat.AlbedoPBR;
                 if (alb && alb.enable && alb.color && !pbr.baseColorTexture && !texd('AlbedoPBR') && !texd('DiffusePBR')) {
                     var af = (typeof alb.factor === 'number') ? alb.factor : 1;
-                    pbr.baseColorFactor = [alb.color[0] * af, alb.color[1] * af, alb.color[2] * af, 1];
+                    pbr.baseColorFactor = [Math.min(1, alb.color[0] * af), Math.min(1, alb.color[1] * af), Math.min(1, alb.color[2] * af), 1];
                     did.push('base color');
                 }
                 var mt = flat.MetalnessPBR, rg = flat.RoughnessPBR;
@@ -1970,7 +1982,7 @@
                 var em = flat.EmitColor;
                 if (em && em.enable && em.color && !m.emissiveTexture && !texd('EmitColor')) {
                     var ef = (typeof em.factor === 'number') ? em.factor : 1;
-                    var ev = [em.color[0] * ef, em.color[1] * ef, em.color[2] * ef];
+                    var ev = [Math.min(1, em.color[0] * ef), Math.min(1, em.color[1] * ef), Math.min(1, em.color[2] * ef)];
                     if (ev[0] > 0 || ev[1] > 0 || ev[2] > 0) { m.emissiveFactor = ev; did.push('emission'); }
                 }
                 if (did.length) log('material ' + m.name + ': flat values from material model (' + did.join(', ') + ')');
@@ -2294,7 +2306,8 @@
                             if (moved) anyMove = true;
                         });
                         if (anyMove) {
-                            var rest0 = tracks[0].frames[0].meshes[mIdx].world;
+                            var r0m = tracks[0].frames[0].meshes[mIdx];
+                            var rest0 = (r0m && r0m.world) ? r0m.world : computeWorldMatrix(obj);
                             var dRest = decomposeMat4(rest0);
                             delete nodes[nodeIdx].matrix;
                             nodes[nodeIdx].translation = dRest.translation;
@@ -2449,7 +2462,7 @@
             for (var k2 = 0; k2 < bPad; k2++) new Uint8Array(glb, o + k2, 1)[0] = 0;
 
             var ml2 = document.getElementsByClassName('model-name__label')[0];
-            var modelName = ml2 ? ml2.textContent.trim().replace(/\.+$/, '') : 'model';
+            var modelName = (ml2 ? ml2.textContent.trim().replace(/\.+$/, '') : 'model').replace(/[\\\/:*?"<>|]/g, '_') || 'model';
 
             var zip = new JSZip();
             zip.file(modelName + '.glb', new Blob([glb], { type: 'application/octet-stream' }));
@@ -2461,8 +2474,13 @@
             zip.generateAsync({ type: 'blob' }).then(function (content) {
                 saveAs(content, modelName + '.zip');
                 log('export done:', modelName + '.zip');
+                _exporting = false;
+            }).catch(function (e) {
+                _exporting = false;
+                err('zip failed:', e.message);
             });
         } catch (e) {
+            _exporting = false;
             err('export failed:', e.message, e.stack);
         }
     }
@@ -2537,14 +2555,21 @@
             if (patchedSrc[src]) { warn('bundle already patched, dropping duplicate:', src.split('/').pop()); e.preventDefault(); e.stopPropagation(); return; }
             patchedSrc[src] = true;
 
+            var js = '';
+            try {
+                var req = new XMLHttpRequest();
+                req.open('GET', src, false);
+                req.send('');
+                if (req.status >= 200 && req.status < 300) js = req.responseText || '';
+                else err('bundle fetch status', req.status, src.split('/').pop());
+            } catch (fe) { err('bundle fetch failed:', fe.message, src.split('/').pop()); }
+            if (!js) { delete patchedSrc[src]; return; }   // leave the original script running
+
             e.preventDefault();
             e.stopPropagation();
 
-            var req = new XMLHttpRequest();
-            req.open('GET', src, false);
-            req.send('');
-            var js = req.responseText;
             var ret, applied = [];
+            for (var rk in RE) if (RE.hasOwnProperty(rk)) RE[rk].lastIndex = 0;
 
             if ((ret = RE.renderInto1.exec(js))) {
                 js = js.slice(0, ret.index + ret[0].length) + ',i' + js.slice(ret.index + ret[0].length);
