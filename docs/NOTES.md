@@ -324,3 +324,14 @@ Model-switch state reset (#1) still open: with pruning, leftovers no longer end 
   vertices (`... 12530 12531 *12535 12536 ...`), which makes two long, near-zero-width triangles bridging separate blocks (rainbow because
   their UVs span the atlas). Now dropped when `DROP_STRIP_SLIVERS` (settings: "Drop strip slivers") is on: strip/fan triangle with longest
   edge > max(20x typical edge, 5% of mesh size) and width (2*area/longest edge) < 2x typical edge. Log `dropped N bridging sliver triangle(s)`.
+
+## Round 12
+- Treehouse stripes confirmed gone, but the first sliver rule also dropped real long thin rods on the Patriot (pattern `10672 10672 10673 10673
+  10674 *10675`, ~125 triangles; the "missing tube"). Rule tightened: a candidate is dropped only if one of its long edges (vertices welded by
+  position) is used by no other triangle, i.e. it spans a gap. Closed tubes share every long edge and stay. Remaining long triangles are
+  logged as `kept (real geometry, edges shared)`.
+- decomposeMat4: zero scale was turned into 1 (`sx || 1`), so expression parts that anime rigs hide by scaling bones to 0 became visible
+  (shards around the girl's mouth, "over-exaggerated" face). Zero scale is now kept (missing rotation column rebuilt from the others), and a
+  negative determinant (mirrored bone) moves the reflection into scale X. Round-trip compose(decompose(M)) = M verified for plain, mirrored,
+  zero-axis and all-zero matrices.
+- Open: girl's red visor exports white (material Accessoris: EmitColor + Opacity textures, no AlbedoPBR in mapping). Needs probe-material-factors output.

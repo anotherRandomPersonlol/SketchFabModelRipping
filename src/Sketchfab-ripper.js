@@ -153,6 +153,15 @@
         var m00 = m[0]*iX, m01 = m[4]*iY, m02 = m[8]*iZ;
         var m10 = m[1]*iX, m11 = m[5]*iY, m12 = m[9]*iZ;
         var m20 = m[2]*iX, m21 = m[6]*iY, m22 = m[10]*iZ;
+        // A zero-scaled axis (rigs hide unused expression parts this way) leaves an empty column:
+        // rebuild it from the other two so the rotation stays valid; keep the 0 scale.
+        if (!sx && sy && sz) { m00 = m11 * m22 - m21 * m12; m10 = m21 * m02 - m01 * m22; m20 = m01 * m12 - m11 * m02; }
+        else if (!sy && sx && sz) { m01 = m12 * m20 - m22 * m10; m11 = m22 * m00 - m02 * m20; m21 = m02 * m10 - m12 * m00; }
+        else if (!sz && sx && sy) { m02 = m10 * m21 - m20 * m11; m12 = m20 * m01 - m00 * m21; m22 = m00 * m11 - m10 * m01; }
+        else if ((!sx ? 1 : 0) + (!sy ? 1 : 0) + (!sz ? 1 : 0) >= 2) { m00 = 1; m01 = 0; m02 = 0; m10 = 0; m11 = 1; m12 = 0; m20 = 0; m21 = 0; m22 = 1; }
+        // Mirrored transform (negative determinant): move the reflection into the X scale.
+        var det = m00 * (m11 * m22 - m12 * m21) - m01 * (m10 * m22 - m12 * m20) + m02 * (m10 * m21 - m11 * m20);
+        if (det < 0) { sx = -sx; m00 = -m00; m10 = -m10; m20 = -m20; }
 
         var trace = m00 + m11 + m22;
         var qw, qx, qy, qz;
@@ -187,7 +196,7 @@
         return {
             translation: [tx, ty, tz],
             rotation: [qx, qy, qz, qw],
-            scale: [sx || 1, sy || 1, sz || 1]
+            scale: [sx, sy, sz]
         };
     }
 
@@ -1781,7 +1790,7 @@
                             var step = Math.max(1, Math.floor(nT / 2000));
                             for (q = 0; q < nT; q += step) lens.push(Math.max(el(tl[q * 3], tl[q * 3 + 1]), el(tl[q * 3 + 1], tl[q * 3 + 2]), el(tl[q * 3], tl[q * 3 + 2])));
                             lens.sort(function (a, b) { return a - b; });
-                            var med = lens[lens.length >> 1] || 0, lim = Math.max(20 * med, 0.05 * size), hits = 0, shown = 0, drop = {}, nDrop = 0;
+                            var med = lens[lens.length >> 1] || 0, lim = Math.max(20 * med, 0.05 * size), hits = 0, shown = 0, drop = {}, nDrop = 0, cand = [];
                             for (q = 0; q < nT; q++) {
                                 var a0 = tl[q * 3], b0 = tl[q * 3 + 1], c0 = tl[q * 3 + 2];
                                 var L = Math.max(el(a0, b0), el(b0, c0), el(a0, c0));
@@ -1792,12 +1801,40 @@
                                 var wx = vv[c0 * 3] - vv[a0 * 3], wy = vv[c0 * 3 + 1] - vv[a0 * 3 + 1], wz = vv[c0 * 3 + 2] - vv[a0 * 3 + 2];
                                 var cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx;
                                 var height = Math.sqrt(cx * cx + cy * cy + cz * cz) / L;   // 2*area / longest edge
-                                if (CONFIG.DROP_STRIP_SLIVERS && (pm === 5 || pm === 6) && height < 2 * med) { drop[q] = true; nDrop++; }
+                                if (CONFIG.DROP_STRIP_SLIVERS && (pm === 5 || pm === 6) && height < 2 * med) cand.push(q);
                                 if (shown++ < 3) {
                                     var at = tpos[q], ctx = [];
                                     for (var ci = Math.max(0, at - 5); ci <= Math.min(pi2.length - 1, at + 3); ci++) ctx.push((ci === at ? '*' : '') + pi2[ci]);
                                     log('long triangle:', nm, 'mode ' + pm, 'tri (' + a0 + ',' + b0 + ',' + c0 + ') longest edge ' + L.toFixed(3) +
                                         ' (typical ' + med.toFixed(4) + ', mesh size ' + size.toFixed(3) + ') at index ' + at + ' of ' + pi2.length + ', indices around: ' + ctx.join(' '));
+                                }
+                            }
+                            // A bridging triangle spans a gap: one of its long edges is used by no other triangle
+                            // (vertices welded by position). Long thin tubes/rods share every long edge, so they stay.
+                            if (cand.length) {
+                                var qs = Math.max(size * 1e-6, 1e-9), wmap = {}, wid = new Int32Array(vc), nw = 0, vi;
+                                for (vi = 0; vi < vc; vi++) {
+                                    var wk = Math.round(vv[vi * 3] / qs) + ',' + Math.round(vv[vi * 3 + 1] / qs) + ',' + Math.round(vv[vi * 3 + 2] / qs);
+                                    if (wmap[wk] === undefined) wmap[wk] = nw++;
+                                    wid[vi] = wmap[wk];
+                                }
+                                var ek = function (i, j) { var a1 = wid[i], b1 = wid[j]; return a1 < b1 ? a1 + '_' + b1 : b1 + '_' + a1; };
+                                var ecount = {}, ci2, e3;
+                                for (ci2 = 0; ci2 < cand.length; ci2++) {
+                                    var cq = cand[ci2], cv3 = [tl[cq * 3], tl[cq * 3 + 1], tl[cq * 3 + 2]];
+                                    for (e3 = 0; e3 < 3; e3++) if (el(cv3[e3], cv3[(e3 + 1) % 3]) > lim) ecount[ek(cv3[e3], cv3[(e3 + 1) % 3])] = 0;
+                                }
+                                for (q = 0; q < nT; q++) for (e3 = 0; e3 < 3; e3++) {
+                                    var k3 = ek(tl[q * 3 + e3], tl[q * 3 + (e3 + 1) % 3]);
+                                    if (ecount[k3] !== undefined) ecount[k3]++;
+                                }
+                                for (ci2 = 0; ci2 < cand.length; ci2++) {
+                                    var cq2 = cand[ci2], cw = [tl[cq2 * 3], tl[cq2 * 3 + 1], tl[cq2 * 3 + 2]], open = false;
+                                    for (e3 = 0; e3 < 3; e3++) {
+                                        var ka = ek(cw[e3], cw[(e3 + 1) % 3]);
+                                        if (ecount[ka] === 1) open = true;
+                                    }
+                                    if (open) { drop[cq2] = true; nDrop++; }
                                 }
                             }
                             if (nDrop) {
@@ -1806,7 +1843,7 @@
                                 tl = kept;
                                 log('mesh ' + nm + ': dropped ' + nDrop + ' bridging sliver triangle(s) from the strip (stripes)');
                             }
-                            if (hits > nDrop) warn('mesh ' + nm + ': ' + (hits - nDrop) + ' long thin triangle(s) kept (not strip slivers)');
+                            if (hits > nDrop) log('mesh ' + nm + ': ' + (hits - nDrop) + ' long thin triangle(s) kept (real geometry, edges shared)');
                         })();
                         if (oobN || degN) log('indices:', nm, 'mode ' + pm, pi2.length + ' indices ->', (tl.length / 3) + ' triangles, restart/out-of-range ' + oobN + ', degenerate ' + degN + ', vertices ' + vc);
                         triParts.push(tl);
