@@ -345,3 +345,13 @@ Model-switch state reset (#1) still open: with pruning, leftovers no longer end 
 - Girl face pulled toward the bubble centre: skin joints are exported as flat palette matrices (identity IBMs) decomposed to TRS. A palette with
   shear (non-uniform scale under rotation) cannot be stored as TRS. New per-skin warning `joint frame(s) have shear that TRS cannot store
   (max error x% at joint j, frame f)` to confirm before a bigger change (exporting the real bone hierarchy).
+
+## Round 14: sheared joints stored exactly
+- Girl visor confirmed red/see-through.
+- Shear confirmed: skin 1 (Body) had 4895 joint frames that TRS cannot represent (max 20.3% at joint 36). Skin joints are flat palette
+  matrices (identity IBMs); a palette with non-uniform scale under rotation has shear.
+- Fix: joints with shear (TRS error > 1e-3 in any frame) get a helper parent node `joint_<mesh>_<j>_shear`: helper = T * U * diag(s),
+  joint = V^T, from a 3x3 SVD (`svdDecompose`, Jacobi on A^T A). Exact for any matrix (random test worst error 1.7e-15, mirrored and
+  zero-scale cases included). Continuity across frames: V columns matched to the previous frame (order + sign), previous basis kept when the
+  scale is uniform, quaternion hemisphere fix for U and V. Channels: helper T/R/S + joint rotation. Log: `skin N: k joint(s) with shear ...
+  stored exactly as helper node + joint (U*S*Vt)`. Joints without shear keep the single-node TRS path.

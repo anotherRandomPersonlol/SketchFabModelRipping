@@ -143,6 +143,101 @@
         return world;
     }
 
+    // ====================================================================
+    // Sheared joint matrices: M = T * U * diag(s) * Vt (exact for any 3x3), stored as two glTF nodes
+    // ====================================================================
+    function _mat3FromMat4(m) { return [[m[0], m[4], m[8]], [m[1], m[5], m[9]], [m[2], m[6], m[10]]]; }
+    function _quatFromCols(c0, c1, c2) {
+        // c0..c2: columns of a proper rotation matrix -> quaternion via decomposeMat4
+        return decomposeMat4([c0[0], c0[1], c0[2], 0, c1[0], c1[1], c1[2], 0, c2[0], c2[1], c2[2], 0, 0, 0, 0, 1]).rotation;
+    }
+    function _cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+    function _dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+    function _norm(a) { var l = Math.sqrt(_dot(a, a)); return l > 1e-20 ? [a[0] / l, a[1] / l, a[2] / l] : null; }
+    function _anyPerp(a) {
+        var t = Math.abs(a[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+        return _norm(_cross(a, t));
+    }
+    // Symmetric 3x3 eigen decomposition (cyclic Jacobi). Returns eigenvalues and eigenvector columns.
+    function _eigSym3(S) {
+        var a = [[S[0][0], S[0][1], S[0][2]], [S[1][0], S[1][1], S[1][2]], [S[2][0], S[2][1], S[2][2]]];
+        var v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], sweep, p, q, r;
+        for (sweep = 0; sweep < 50; sweep++) {
+            var off = Math.abs(a[0][1]) + Math.abs(a[0][2]) + Math.abs(a[1][2]);
+            if (off < 1e-30) break;
+            for (p = 0; p < 2; p++) for (q = p + 1; q < 3; q++) {
+                if (Math.abs(a[p][q]) < 1e-300) continue;
+                var th = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+                var t = (th >= 0 ? 1 : -1) / (Math.abs(th) + Math.sqrt(th * th + 1));
+                var c = 1 / Math.sqrt(t * t + 1), sn = t * c;
+                for (r = 0; r < 3; r++) { var arp = a[r][p], arq = a[r][q]; a[r][p] = c * arp - sn * arq; a[r][q] = sn * arp + c * arq; }
+                for (r = 0; r < 3; r++) { var apr = a[p][r], aqr = a[q][r]; a[p][r] = c * apr - sn * aqr; a[q][r] = sn * apr + c * aqr; }
+                for (r = 0; r < 3; r++) { var vrp = v[r][p], vrq = v[r][q]; v[r][p] = c * vrp - sn * vrq; v[r][q] = sn * vrp + c * vrq; }
+            }
+        }
+        return { vals: [a[0][0], a[1][1], a[2][2]], vecs: [[v[0][0], v[1][0], v[2][0]], [v[0][1], v[1][1], v[2][1]], [v[0][2], v[1][2], v[2][2]]] };
+    }
+    // m: column-major 4x4. prevV: previous frame's V columns (for continuity) or null.
+    // Returns { translation, rotU, scale, rotV, V } with M = T * U * diag(scale) * V^T.
+    function svdDecompose(m, prevV) {
+        var A = _mat3FromMat4(m), i, j, k;
+        var ATA = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+        for (i = 0; i < 3; i++) for (j = 0; j < 3; j++) for (k = 0; k < 3; k++) ATA[i][j] += A[k][i] * A[k][j];
+        var e = _eigSym3(ATA), order = [0, 1, 2];
+        order.sort(function (x, y) { return e.vals[y] - e.vals[x]; });
+        var V = [e.vecs[order[0]], e.vecs[order[1]], e.vecs[order[2]]];
+        var lmax = Math.max(e.vals[0], e.vals[1], e.vals[2]), lmin = Math.min(e.vals[0], e.vals[1], e.vals[2]);
+        if (prevV && lmax - lmin <= 1e-6 * Math.max(lmax, 1e-30)) {
+            V = [prevV[0], prevV[1], prevV[2]];   // uniform scale: any basis works, keep the previous one (no jump)
+        } else if (prevV) {
+            // Keep the same column order and signs as the previous frame (no flips during interpolation).
+            var used = [false, false, false], nv = [];
+            for (i = 0; i < 3; i++) {
+                var best = -1, bd = -1;
+                for (j = 0; j < 3; j++) { if (used[j]) continue; var dd = Math.abs(_dot(prevV[i], V[j])); if (dd > bd) { bd = dd; best = j; } }
+                used[best] = true;
+                nv.push(_dot(prevV[i], V[best]) < 0 ? [-V[best][0], -V[best][1], -V[best][2]] : V[best]);
+            }
+            V = nv;
+        }
+        if (_dot(_cross(V[0], V[1]), V[2]) < 0) V[2] = [-V[2][0], -V[2][1], -V[2][2]];
+        var sig = [], U = [], smax = 0;
+        for (i = 0; i < 3; i++) {
+            var av = [A[0][0] * V[i][0] + A[0][1] * V[i][1] + A[0][2] * V[i][2],
+                      A[1][0] * V[i][0] + A[1][1] * V[i][1] + A[1][2] * V[i][2],
+                      A[2][0] * V[i][0] + A[2][1] * V[i][1] + A[2][2] * V[i][2]];
+            sig[i] = Math.sqrt(_dot(av, av));
+            if (sig[i] > smax) smax = sig[i];
+            U[i] = av;
+        }
+        var ok = [];
+        for (i = 0; i < 3; i++) { ok[i] = sig[i] > 1e-9 * Math.max(smax, 1e-30); U[i] = ok[i] ? [U[i][0] / sig[i], U[i][1] / sig[i], U[i][2] / sig[i]] : null; if (!ok[i]) sig[i] = 0; }
+        // Complete / orthonormalise U (Gram-Schmidt in V order).
+        if (!U[0]) U[0] = U[1] ? _anyPerp(U[1]) : (U[2] ? _anyPerp(U[2]) : [1, 0, 0]);
+        if (U[1]) { var d01 = _dot(U[1], U[0]); U[1] = _norm([U[1][0] - d01 * U[0][0], U[1][1] - d01 * U[0][1], U[1][2] - d01 * U[0][2]]); }
+        if (!U[1]) U[1] = _anyPerp(U[0]);
+        var u2 = _cross(U[0], U[1]);
+        if (U[2] && _dot(U[2], u2) < 0) { sig[2] = -sig[2]; }   // mirrored: keep U a rotation, move the sign into scale
+        U[2] = u2;
+        return {
+            translation: [m[12], m[13], m[14]],
+            rotU: _quatFromCols(U[0], U[1], U[2]),
+            scale: sig,
+            // V^T as a rotation: its columns are the rows of V-as-columns
+            rotV: _quatFromCols([V[0][0], V[1][0], V[2][0]], [V[0][1], V[1][1], V[2][1]], [V[0][2], V[1][2], V[2][2]]),
+            V: V
+        };
+    }
+    function _quatCont(q, prev) {
+        if (prev && q[0] * prev[0] + q[1] * prev[1] + q[2] * prev[2] + q[3] * prev[3] < 0) return [-q[0], -q[1], -q[2], -q[3]];
+        return q;
+    }
+    function trsError(m) {
+        var dc = composeTRS(decomposeMat4(m)), de = 0, dsc = 1e-9, dq;
+        for (dq = 0; dq < 15; dq++) { if (dq % 4 === 3) continue; de = Math.max(de, Math.abs(dc[dq] - m[dq])); dsc = Math.max(dsc, Math.abs(m[dq])); }
+        return de / dsc;
+    }
+
     // Inverse of decomposeMat4: column-major T*R*S matrix (used to measure decomposition error).
     function composeTRS(d) {
         var x = d.rotation[0], y = d.rotation[1], z = d.rotation[2], w = d.rotation[3], s = d.scale, t = d.translation;
@@ -2297,6 +2392,38 @@
                 delete nodes[meshNodeIdx].matrix;
 
                 var decErr = { max: 0, joint: -1, frame: -1, bad: 0 };
+                // Joints whose matrix has shear get a helper parent node: helper = T*U*S, joint = V^T (exact).
+                var helperOf = {};
+                function makeHelper(jx) {
+                    if (helperOf[jx] !== undefined) return helperOf[jx];
+                    var jNode = jointNodeIndices[jx], hIdx = nodes.length;
+                    nodes.push({ name: 'joint_' + mIdx + '_' + jx + '_shear', children: [jNode] });
+                    var kids = nodes[skelRootIdx].children, kp = kids.indexOf(jNode);
+                    if (kp >= 0) kids[kp] = hIdx; else kids.push(hIdx);
+                    helperOf[jx] = hIdx;
+                    return hIdx;
+                }
+                function setShearRest(jx, mat) {
+                    var hx = makeHelper(jx), sd = svdDecompose(mat, null), jNode = jointNodeIndices[jx];
+                    nodes[hx].translation = sd.translation; nodes[hx].rotation = sd.rotU; nodes[hx].scale = sd.scale;
+                    nodes[jNode].rotation = sd.rotV;
+                    delete nodes[jNode].translation; delete nodes[jNode].scale;
+                }
+                var shearJ = {};
+                if (hasFrames && paletteRef) {
+                    for (var sjn = 0; sjn < jointCount; sjn++) {
+                        for (var stk = 0; stk < tracks.length && !shearJ[sjn]; stk++) {
+                            var sfr = tracks[stk].frames;
+                            for (var sfi = 0; sfi < sfr.length; sfi++) {
+                                var sfm = sfr[sfi].meshes[mIdx], spal = sfm && sfm.palette;
+                                if (!spal || spal.length < (sjn + 1) * 12) continue;
+                                var serr = trsError(expandMat3x4(spal, sjn));
+                                if (serr > decErr.max) { decErr.max = serr; decErr.joint = sjn; decErr.frame = sfi; }
+                                if (serr > 1e-3) { shearJ[sjn] = true; decErr.bad++; break; }
+                            }
+                        }
+                    }
+                }
                 if (hasFrames && paletteRef) {
                     var animatedCount = 0;
                     var animatedJoints = {};
@@ -2333,20 +2460,26 @@
                         for (var ci = 0; ci < tracks.length; ci++) {
                             if (!clipHasMotion[ci]) continue;   // only clips where it moved
                             var tr = tracks[ci];
-                            var T = [], R = [], S = [];
-                            var prevQ = null;   // hemisphere fix resets per clip, per joint
+                            var T = [], R = [], S = [], RV = [];
+                            var prevQ = null, prevQV = null, prevV = null;   // hemisphere fix resets per clip, per joint
+                            var tgtTRS = shearJ[jn] ? makeHelper(jn) : nIdx;   // sheared joint: T/R/S go on the helper
                             for (var fi3 = 0; fi3 < tr.frames.length; fi3++) {
                                 var fmesh = tr.frames[fi3].meshes[mIdx];
                                 var pal = fmesh && fmesh.palette;
                                 var mPal = (pal && pal.length >= (jn + 1) * 12)
                                          ? expandMat3x4(pal, jn) : identityMat4();
+                                if (shearJ[jn]) {
+                                    var sd3 = svdDecompose(mPal, prevV);
+                                    prevV = sd3.V;
+                                    var qU = _quatCont(sd3.rotU, prevQ), qV = _quatCont(sd3.rotV, prevQV);
+                                    prevQ = qU; prevQV = qV;
+                                    T.push(sd3.translation[0], sd3.translation[1], sd3.translation[2]);
+                                    R.push(qU[0], qU[1], qU[2], qU[3]);
+                                    S.push(sd3.scale[0], sd3.scale[1], sd3.scale[2]);
+                                    RV.push(qV[0], qV[1], qV[2], qV[3]);
+                                    continue;
+                                }
                                 var d = decomposeMat4(mPal);
-                                // Skinning matrices with shear (non-uniform scale under rotation) cannot be stored as
-                                // TRS; measure how much is lost (diagnostic for distorted skinned parts).
-                                var dc = composeTRS(d), de = 0, dsc = 1e-9;
-                                for (var dq = 0; dq < 12; dq++) { if (dq % 4 === 3) continue; de = Math.max(de, Math.abs(dc[dq] - mPal[dq])); dsc = Math.max(dsc, Math.abs(mPal[dq])); }
-                                if (de / dsc > decErr.max) { decErr.max = de / dsc; decErr.joint = jn; decErr.frame = fi3; }
-                                if (de / dsc > 1e-3) decErr.bad++;
                                 if (prevQ) {
                                     var dot = d.rotation[0]*prevQ[0] + d.rotation[1]*prevQ[1]
                                             + d.rotation[2]*prevQ[2] + d.rotation[3]*prevQ[3];
@@ -2368,21 +2501,29 @@
                                         count: tr.times.length, type: 'VEC3' });
                             tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aT });
                             tr.channels.push({ sampler: tr.samplers.length - 1,
-                                               target: { node: nIdx, path: 'translation' } });
+                                               target: { node: tgtTRS, path: 'translation' } });
 
                             var aR = accs.length;
                             accs.push({ bufferView: addBV(new Float32Array(R)), componentType: 5126,
                                         count: tr.times.length, type: 'VEC4' });
                             tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aR });
                             tr.channels.push({ sampler: tr.samplers.length - 1,
-                                               target: { node: nIdx, path: 'rotation' } });
+                                               target: { node: tgtTRS, path: 'rotation' } });
 
                             var aS = accs.length;
                             accs.push({ bufferView: addBV(new Float32Array(S)), componentType: 5126,
                                         count: tr.times.length, type: 'VEC3' });
                             tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aS });
                             tr.channels.push({ sampler: tr.samplers.length - 1,
-                                               target: { node: nIdx, path: 'scale' } });
+                                               target: { node: tgtTRS, path: 'scale' } });
+                            if (shearJ[jn]) {
+                                var aRV = accs.length;
+                                accs.push({ bufferView: addBV(new Float32Array(RV)), componentType: 5126,
+                                            count: tr.times.length, type: 'VEC4' });
+                                tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aRV });
+                                tr.channels.push({ sampler: tr.samplers.length - 1,
+                                                   target: { node: nIdx, path: 'rotation' } });
+                            }
                         }
                     }
 
@@ -2425,6 +2566,7 @@
                             continue;
                         }
                         var pal0 = expandMat3x4(restPal, sj);
+                        if (shearJ[sj] || (!animatedJoints[jnIdx] && trsError(pal0) > 1e-3)) { setShearRest(sj, pal0); continue; }
                         var d0 = decomposeMat4(pal0);
                         nodes[jnIdx].translation = d0.translation;
                         nodes[jnIdx].rotation = d0.rotation;
@@ -2435,14 +2577,17 @@
                     log('skin', skinIdx, 'for mesh', meshes[nodes[meshNodeIdx].mesh].name,
                         '→', jointCount, 'joints,', animatedCount, 'animated,',
                         tracks.length, 'clip(s)');
-                    if (decErr.bad) warn('skin ' + skinIdx + ': ' + decErr.bad + ' joint frame(s) have shear that TRS cannot store (max error ' +
-                        (decErr.max * 100).toFixed(1) + '% at joint ' + decErr.joint + ', frame ' + decErr.frame + '); parts skinned to it may look distorted');
+                    var nHelp = 0; for (var hk in helperOf) if (helperOf.hasOwnProperty(hk)) nHelp++;
+                    if (nHelp) log('skin ' + skinIdx + ': ' + nHelp + ' joint(s) with shear (max ' + (decErr.max * 100).toFixed(1) +
+                        '% TRS error at joint ' + decErr.joint + ') stored exactly as helper node + joint (U*S*Vt)');
                 } else {
                     var live = liveSnap && liveSnap[mIdx];
                     if (live && live.palette) {
                         for (var sj2 = 0; sj2 < jointCount; sj2++) {
                             if ((sj2 + 1) * 12 > live.palette.length) break;
-                            var dl = decomposeMat4(expandMat3x4(live.palette, sj2));
+                            var lm = expandMat3x4(live.palette, sj2);
+                            if (trsError(lm) > 1e-3) { setShearRest(sj2, lm); continue; }
+                            var dl = decomposeMat4(lm);
                             var jn2 = jointNodeIndices[sj2];
                             nodes[jn2].translation = dl.translation;
                             nodes[jn2].rotation = dl.rotation;
