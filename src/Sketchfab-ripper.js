@@ -319,9 +319,12 @@
     window.drawhookcanvas = function (e, imagemodel) {
         try {
             if (!e) return e;
-            if ((e.width === 128 && e.height === 128) ||
-                (e.width === 32  && e.height === 32)  ||
-                (e.width === 64  && e.height === 64)) return e;
+            // 32/64/128 px square images are usually low-res placeholders of a bigger texture; they are
+            // skipped only while a larger variant exists (a texture whose real size is 128 px is kept).
+            var isSmall = (e.width === 128 && e.height === 128) ||
+                          (e.width === 32  && e.height === 32)  ||
+                          (e.width === 64  && e.height === 64);
+            if (isSmall && !(imagemodel && e.options && imagemodel.attributes && imagemodel.attributes.images)) return e;
             if (imagemodel && e.options && imagemodel.attributes && imagemodel.attributes.images) {
                 var alpha = e.options.format;
                 var url_image = e.url, max_size = 0, obr = e;
@@ -332,6 +335,7 @@
                         max_size = img.size; url_image = img.url; obr = img;
                     }
                 });
+                if (isSmall && !(obr && obr.width <= e.width)) return e;   // a larger variant will come
                 if (!saveimagecache2[url_image]) {
                     var base = pickTextureName(imagemodel, url_image);
                     var texName = base, n = 1;
@@ -1455,11 +1459,15 @@
     }
 
     var _opacityKind = {};      // sanitized mesh name -> 'opacity' | 'alphamask'
+    var _alphaFirst = {};       // 'colorUrl|maskUrl' -> first sanitized mesh name that merged it
+    var _alphaShare = {};       // sanitized mesh name -> sanitized name that owns the merged texture
     var _opacityOneFile = {};   // sanitized mesh name -> true when opacity lives in the base color file's alpha
 
     function mergeOpacityTextures() {
         _opacityOneFile = {};
         _opacityKind = {};
+        _alphaFirst = {};
+        _alphaShare = {};
         var jobs = [];
         var seen = {};
         window.allmodel.forEach(function (obj, i) {
@@ -1477,6 +1485,10 @@
                 log('opacity merge: ' + meshName + ' uses one file for color and opacity, skipped');
                 return;
             }
+            // Meshes sharing the same colour and mask images share one merged texture.
+            var okey = normalizeUrl(cm.AlbedoPBR.url) + '|' + normalizeUrl(opSrc.url);
+            if (_alphaFirst[okey]) { _alphaShare[san] = _alphaFirst[okey]; log('opacity merge: ' + meshName + ' shares the merged texture of ' + _alphaFirst[okey]); return; }
+            _alphaFirst[okey] = san;
             jobs.push(
                 _mergeOneOpacity(cm).then(function (result) {
                     if (!result || !result.blob) return;
@@ -1701,17 +1713,32 @@
                         if (!pi2 || !pi2.length) return;
                         // Degenerate triangles (repeated index) are strip joins; drop them so
                         // Blender does not show long zero-area edges between distant vertices.
-                        function addTri(a, b, c) { if (a !== b && b !== c && a !== c && a < vc && b < vc && c < vc) tl.push(a, b, c); }
+                        var oobN = 0, degN = 0;
+                        function addTri(a, b, c) {
+                            if (a !== b && b !== c && a !== c && a < vc && b < vc && c < vc) tl.push(a, b, c);
+                            else if (a >= vc || b >= vc || c >= vc) oobN++;
+                            else degN++;
+                        }
+                        // An index >= vertex count (WebGL2 primitive restart value 65535 / 4294967295) ends a
+                        // strip or fan: restart the winding parity after it instead of treating it as a vertex.
+                        var rs = 0;
                         if (pm === 4) {
                             for (t2 = 0; t2 + 2 < pi2.length; t2 += 3) addTri(pi2[t2], pi2[t2 + 1], pi2[t2 + 2]);
                         } else if (pm === 5) {
-                            for (t2 = 0; t2 + 2 < pi2.length; t2++) {
-                                if (t2 % 2 === 0) addTri(pi2[t2], pi2[t2 + 1], pi2[t2 + 2]);
-                                else addTri(pi2[t2 + 1], pi2[t2], pi2[t2 + 2]);
+                            for (t2 = 0; t2 < pi2.length; t2++) {
+                                if (pi2[t2] >= vc) { rs = t2 + 1; oobN++; continue; }
+                                if (t2 - rs < 2) continue;
+                                if ((t2 - rs) % 2 === 0) addTri(pi2[t2 - 2], pi2[t2 - 1], pi2[t2]);
+                                else addTri(pi2[t2 - 1], pi2[t2 - 2], pi2[t2]);
                             }
                         } else if (pm === 6) {
-                            for (t2 = 1; t2 + 1 < pi2.length; t2++) addTri(pi2[0], pi2[t2], pi2[t2 + 1]);
+                            for (t2 = 0; t2 < pi2.length; t2++) {
+                                if (pi2[t2] >= vc) { rs = t2 + 1; oobN++; continue; }
+                                if (t2 - rs < 2) continue;
+                                addTri(pi2[rs], pi2[t2 - 1], pi2[t2]);
+                            }
                         } else { skippedP++; return; }
+                        if (oobN || degN) log('indices:', nm, 'mode ' + pm, pi2.length + ' indices ->', (tl.length / 3) + ' triangles, restart/out-of-range ' + oobN + ', degenerate ' + degN + ', vertices ' + vc);
                         triParts.push(tl);
                     });
                     if (mdl.primitives.length > 1 || (mdl.primitives[0] && mdl.primitives[0].mode === 5)) log('primitives:', nm, mdl.primitives.length, '(mode x indices: ' + modeLog.join(', ') + ')');
@@ -1864,6 +1891,21 @@
                 return Math.max(0, Math.min(1, f));
             }
 
+            // Channels the viewer shows with a texture that did not make it into the export.
+            mats.forEach(function (m, mi) {
+                var chan = matsChannelInfo[mi] || {};
+                (function () {
+                    var fl = matsFlat[mi], mp = fl && fl.__map, lost = [];
+                    if (mp) for (var mk2 in mp) {
+                        if (!mp.hasOwnProperty(mk2) || !(mp[mk2] >= 0) || mk2 === 'Inspector' || mk2 === 'Matcap') continue;
+                        var inf = chan[mk2];
+                        if (!inf || findTexIdx(inf) === undefined) lost.push(mk2);
+                    }
+                    if (lost.length) warn('material ' + m.name + ': channels with a texture in the viewer but not in the export: ' + lost.join(', '));
+                })();
+            });
+            if (!textures.length && mats.length) warn('no textures were captured at all: reload the page, wait until the model is fully shown, then export (see tools/probe-textures.js if it keeps happening)');
+
             if (textures.length) {
                 mats.forEach(function (m, mi) {
                     if (!matHasUV[m.name]) return;
@@ -1912,7 +1954,7 @@
 
                     // Merged opacity (see mergeOpacityTextures): the RGBA texture
                     // replaces the plain base color and the material blends.
-                    var alphaIdx = textureNameToIndex[sanitizeTextureName(m.name) + '_Alpha'];
+                    var alphaIdx = textureNameToIndex[(_alphaShare[sanitizeTextureName(m.name)] || sanitizeTextureName(m.name)) + '_Alpha'];
                     if (alphaIdx !== undefined) {
                         m.pbrMetallicRoughness.baseColorTexture = { index: alphaIdx };
                         if (_opacityKind[sanitizeTextureName(m.name)] === 'alphamask') {
@@ -1924,15 +1966,6 @@
                         log('material ' + m.name + ': alphaMode ' + m.alphaMode + ' with merged ' + (_opacityKind[sanitizeTextureName(m.name)] || 'opacity') + ' texture');
                     }
 
-                    (function () {
-                        var fl = matsFlat[mi], mp = fl && fl.__map, lost = [];
-                        if (mp) for (var mk2 in mp) {
-                            if (!mp.hasOwnProperty(mk2) || !(mp[mk2] >= 0) || mk2 === 'Inspector' || mk2 === 'Matcap') continue;
-                            var inf = chan[mk2];
-                            if (!inf || findTexIdx(inf) === undefined) lost.push(mk2);
-                        }
-                        if (lost.length) warn('material ' + m.name + ': channels with a texture in the viewer but not in the export: ' + lost.join(', '));
-                    })();
                     if (!assigned) {
                         // No texture of this material was captured. Do not borrow texture 0
                         // (an unrelated image); keep the plain material and say so.

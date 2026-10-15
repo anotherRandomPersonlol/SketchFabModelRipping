@@ -278,3 +278,15 @@ Now: texture files are written with ASCII-safe names (`[^A-Za-z0-9._-]` -> `_`, 
 textures no material references are dropped from images/textures and from the zip (log: `textures: N used, M unused dropped`).
 Warning `channels with a texture in the viewer but not in the export: EmitColor` = that texture was never captured (never drawn); not fixed.
 Model-switch state reset (#1) still open: with pruning, leftovers no longer end up in the export.
+
+## Round 7 (treehouse + small neon sign, unverified)
+- Treehouse zip held the same merged opacity PNG 7 times: meshes with identical colour+mask URLs now share one merged texture
+  (`_alphaFirst`/`_alphaShare`, log `shares the merged texture of`).
+- Treehouse: stray thin lines in the glTF viewer and missing patches (Blender 744k triangles vs ~2.3M strip indices). Possible cause: strip
+  restart indices. Strips/fans now restart winding at any index >= vertex count and each primitive logs
+  `indices: <mesh> mode N ... -> T triangles, restart/out-of-range X, degenerate Y, vertices V`. Needs a re-export log to tell.
+  Meshes also carry a second tiny `4x3` primitive (single triangle); not yet judged.
+- Small neon sign exported with no textures at all (white): `texture channels []` although the viewer maps AlbedoPBR/EmitColor.
+  Two changes: 32/64/128 px square images are only skipped while a larger variant exists (a texture whose real size is 128 is kept), and the
+  "channels with a texture in the viewer but not in the export" warning plus a "no textures were captured at all" warning now also fire when
+  no texture was captured. `tools/probe-textures.js` dumps the texture attribute structure for the case that does not fix it.
