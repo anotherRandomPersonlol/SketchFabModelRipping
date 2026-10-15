@@ -271,3 +271,10 @@ Deferred (judged low value or risky without a live test): model-switch state res
 carry-forward (#5), URL-tail texture lookup / MR merge by URL (#7, #8), duplicate-mesh-name materials (#9), CLIP_FPS throttling (#13),
 memory release of bitmaps/dataURL (#12), morph target index remap (#19), morph min/max float32 (#20), mirrored-scale decompose (#22),
 O(n^2) parent search (#25), manager cache re-validation (#15), normal/UV length guards (#18).
+
+## Texture packaging (round 6)
+Test 1 (two models without reload) gave validator "Failed to fetch /images/2, 7-8" and UNUSED_OBJECT for textures 1-2, 5-8, model looked fine.
+Now: texture files are written with ASCII-safe names (`[^A-Za-z0-9._-]` -> `_`, uniquified) and the glTF URIs match exactly;
+textures no material references are dropped from images/textures and from the zip (log: `textures: N used, M unused dropped`).
+Warning `channels with a texture in the viewer but not in the export: EmitColor` = that texture was never captured (never drawn); not fixed.
+Model-switch state reset (#1) still open: with pruning, leftovers no longer end up in the export.

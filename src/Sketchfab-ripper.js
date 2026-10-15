@@ -1824,7 +1824,7 @@
                 if (ni !== undefined) nodes[ni].mesh = mshIdx;
             });
 
-            var images = [], textures = [];
+            var images = [], textures = [], imageKeys = [], usedSafe = {};
             var textureUrlToIndex  = {};
             var textureNameToIndex = {};
             for (var key in saveimagecache2) {
@@ -1833,8 +1833,14 @@
                 if (!t || !t.dataURL) continue;
                 var ext = t.fileExt || '.png';
                 if (!objects[(t.name || 'texture') + ext]) { warn('texture file missing, not referenced: ' + (t.name || 'texture') + ext); continue; }
-                var path = 'textures/' + encodeURIComponent(t.name || 'texture') + ext;
+                // ASCII-safe file name: no encoding issues in URIs or zip loaders.
+                var safeBase = String(t.name || 'texture').replace(/[^A-Za-z0-9._-]+/g, '_') || 'texture';
+                var safeName = safeBase + ext, sc = 1;
+                while (usedSafe[safeName]) safeName = safeBase + '_' + (sc++) + ext;
+                usedSafe[safeName] = true;
+                var path = 'textures/' + safeName;
                 var ii = images.length;
+                imageKeys.push({ key: (t.name || 'texture') + ext, safe: safeName });
                 images.push({ uri: path });
                 textures.push({ source: ii });
                 var nu = normalizeUrl(key);
@@ -2422,6 +2428,29 @@
                 materials: mats,
                 buffers: [{ byteLength: off }]
             };
+            // Drop textures no material references (captured env/matcap/leftover images) and remap indices.
+            var texUsed = {}, texNew = {}, keptImages = [], keptTextures = [], zipTex = {};
+            function markTex(o) { if (o && typeof o.index === 'number') texUsed[o.index] = true; }
+            mats.forEach(function (m) {
+                var pb = m.pbrMetallicRoughness || {};
+                markTex(pb.baseColorTexture); markTex(pb.metallicRoughnessTexture);
+                markTex(m.normalTexture); markTex(m.occlusionTexture); markTex(m.emissiveTexture);
+            });
+            for (var ti2 = 0; ti2 < textures.length; ti2++) {
+                if (!texUsed[ti2]) continue;
+                texNew[ti2] = keptTextures.length;
+                keptImages.push({ uri: images[textures[ti2].source].uri });
+                keptTextures.push({ source: keptImages.length - 1 });
+                zipTex[imageKeys[textures[ti2].source].key] = imageKeys[textures[ti2].source].safe;
+            }
+            function remapTex(o) { if (o && typeof o.index === 'number') o.index = texNew[o.index]; }
+            mats.forEach(function (m) {
+                var pb = m.pbrMetallicRoughness || {};
+                remapTex(pb.baseColorTexture); remapTex(pb.metallicRoughnessTexture);
+                remapTex(m.normalTexture); remapTex(m.occlusionTexture); remapTex(m.emissiveTexture);
+            });
+            if (keptTextures.length !== textures.length) log('textures: ' + keptTextures.length + ' used, ' + (textures.length - keptTextures.length) + ' unused dropped');
+            images = keptImages; textures = keptTextures;
             // glTF forbids empty arrays (validator: EMPTY_ENTITY), so texture-less models omit these.
             if (images.length) gltf.images = images;
             if (textures.length) gltf.textures = textures;
@@ -2466,9 +2495,9 @@
 
             var zip = new JSZip();
             zip.file(modelName + '.glb', new Blob([glb], { type: 'application/octet-stream' }));
-            for (var tn in objects) {
-                if (objects.hasOwnProperty(tn) && objects[tn]) {
-                    zip.file('textures/' + tn, objects[tn]);
+            for (var tn in zipTex) {
+                if (zipTex.hasOwnProperty(tn) && objects[tn]) {
+                    zip.file('textures/' + zipTex[tn], objects[tn]);
                 }
             }
             zip.generateAsync({ type: 'blob' }).then(function (content) {
