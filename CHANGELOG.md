@@ -7,7 +7,7 @@
 - Exports material values for models without textures: base color, metalness, roughness, emission and opacity.
 - Exports alpha mask (cutout) materials and opacity images without a base color image.
 - Follows the Single Sided setting of each material.
-- Exports bones with non-uniform scale and shear without data loss (helper node per sheared joint).
+- Exports bones with non-uniform scale and shear without data loss, also in Blender.
 - Keeps expression switches (bones scaled to zero) instant, as in the viewer.
 - New settings: Record FPS, Export scale, Auto single sided, Drop strip slivers, Vertex color sRGB>linear, Flat metal/rough from viewer.
 - Issue forms for bug reports and feature requests.
