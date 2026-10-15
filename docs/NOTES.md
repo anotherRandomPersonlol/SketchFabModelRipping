@@ -10,7 +10,7 @@ https://github.com/cedricpinson/osgjs
 Sketchfab serves different viewer builds to different sessions.
 Some have our injection anchors (2b5a23...), some don't (da8ed87c...).
 Reload until `[Ripper] patched ...` appears in the console.
-This could depend if were only watching for <head> in the site or both <head> and <body>.
+This could depend if were only watching for `<head>` in the site or both `<head>` and `<body>`.
 
 ### 3. The matrix palette
 `mesh._rigTransformImplementation._skinningAttribute._matrixPalette`
