@@ -1738,6 +1738,21 @@
                                 addTri(pi2[rs], pi2[t2 - 1], pi2[t2]);
                             }
                         } else { skippedP++; return; }
+                        if (pm === 4 && mdl.primitives.length > 1 && pi2.length <= 30 && tl.length) {
+                            // Diagnostic for stray long triangles: print the first triangles of tiny extra primitives.
+                            var vv = mdl.vertex, bmn = [1e30, 1e30, 1e30], bmx = [-1e30, -1e30, -1e30], bi, bk;
+                            for (bi = 0; bi < vc; bi++) for (bk = 0; bk < 3; bk++) {
+                                if (vv[bi * 3 + bk] < bmn[bk]) bmn[bk] = vv[bi * 3 + bk];
+                                if (vv[bi * 3 + bk] > bmx[bk]) bmx[bk] = vv[bi * 3 + bk];
+                            }
+                            var bd = Math.sqrt(Math.pow(bmx[0] - bmn[0], 2) + Math.pow(bmx[1] - bmn[1], 2) + Math.pow(bmx[2] - bmn[2], 2));
+                            function edgeLen(i, j) { return Math.sqrt(Math.pow(vv[i * 3] - vv[j * 3], 2) + Math.pow(vv[i * 3 + 1] - vv[j * 3 + 1], 2) + Math.pow(vv[i * 3 + 2] - vv[j * 3 + 2], 2)); }
+                            for (bi = 0; bi < tl.length && bi < 9; bi += 3) {
+                                log('tiny primitive:', nm, 'tri (' + tl[bi] + ',' + tl[bi + 1] + ',' + tl[bi + 2] + ') edges ' +
+                                    edgeLen(tl[bi], tl[bi + 1]).toFixed(3) + ' ' + edgeLen(tl[bi + 1], tl[bi + 2]).toFixed(3) + ' ' + edgeLen(tl[bi], tl[bi + 2]).toFixed(3) +
+                                    ' mesh size ' + bd.toFixed(3) + ' vertices ' + vc);
+                            }
+                        }
                         if (oobN || degN) log('indices:', nm, 'mode ' + pm, pi2.length + ' indices ->', (tl.length / 3) + ' triangles, restart/out-of-range ' + oobN + ', degenerate ' + degN + ', vertices ' + vc);
                         triParts.push(tl);
                     });

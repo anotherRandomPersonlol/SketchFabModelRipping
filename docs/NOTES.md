@@ -290,3 +290,11 @@ Model-switch state reset (#1) still open: with pruning, leftovers no longer end 
   Two changes: 32/64/128 px square images are only skipped while a larger variant exists (a texture whose real size is 128 is kept), and the
   "channels with a texture in the viewer but not in the export" warning plus a "no textures were captured at all" warning now also fire when
   no texture was captured. `tools/probe-textures.js` dumps the texture attribute structure for the case that does not fix it.
+
+## Round 8 findings (neon sign, treehouse)
+- Treehouse: strips are fine (no restart indices, every mesh's triangles ~ vertices/2, i.e. all quads present; Blender 744k triangles = sum of
+  the 28 captured meshes). Sketchfab reports 1.8M triangles, so the export holds only the geometry that was DRAWN at capture time
+  (attachbody hooks drawGeometry): chunks outside the view/frustum are probably never captured. Test: orbit/zoom so everything is on screen and watch
+  `meshes:` in the panel. Stray long lines probably come from the lone `4x3` primitives; the export now logs `tiny primitive:` edge lengths for them.
+- Neon sign: the textures' `_image` is null (unref'd after upload, `_unrefImageDataAfterApply`), so nothing is captured through getResourceImage.
+  `tools/probe-texture-gpu.js` checks whether pixels can be read back from the GPU texture instead.
