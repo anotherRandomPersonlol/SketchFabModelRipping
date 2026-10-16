@@ -56,7 +56,7 @@ If you do not record, the export contains the model in its current pose.
 
 ## Settings
 
-Click the gear icon in the panel. The script keeps your settings for the next visit.
+Click the gear icon in the panel. The script keeps your settings for the next visit. Hold the pointer on a setting name to see what it does.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -66,11 +66,12 @@ Click the gear icon in the panel. The script keeps your settings for the next vi
 | Double sided | On | Marks materials as double-sided, as in the viewer. |
 | Auto single sided (viewer flag) | On | Keeps a material single-sided if the viewer shows it single-sided. |
 | Drop strip slivers (stripes) | On | Removes long thin triangles that connect separate parts. |
+| Reduce keyframes | On | Leaves out animation keys that the keys before and after them already give. The file gets about half as large. Turn it off if an animation looks wrong. |
 | Vertex color sRGB>linear | On | Converts vertex colors to the color space that glTF uses. |
 | Flat metal/rough from viewer | On | Uses the metalness and roughness values of the viewer for materials without textures. |
 | Export scale | 1 | Multiplies the size of the model. Use 0.01 for a model in centimeters. |
 | MR format | JPEG | File format of the merged metallic-roughness textures: JPEG (small) or PNG (lossless). |
-| Rest pose | Clip frame 0 | Sets the rest pose of the skeleton: the first recorded frame or the Static Pose of the viewer. |
+| Rest pose | Clip 1st frame | Sets the rest pose of the skeleton: the first recorded frame or the Static Pose of the viewer. |
 
 ## Open the export
 

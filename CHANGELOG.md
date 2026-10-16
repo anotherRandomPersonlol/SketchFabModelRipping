@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.2
+
+### New
+- New setting: Reduce keyframes (on by default). Leaves out animation keys that the keys before and after them already give, within a small tolerance. Animated exports are about half as large. Turn it off if an animation looks wrong.
+
+### Changed
+- The zip file is compressed. Textures are stored as they are, because PNG and JPEG are already compressed.
+- Every setting has a tooltip that tells what it does.
+- The script header has `@license MIT`.
+
+### Fixed
+- The GLB no longer has an empty node for the skipped wireframe overlay.
+- The GLB no longer has unused time data for clips that are not exported.
+
 ## v1.1.1
 
 ### Fixed

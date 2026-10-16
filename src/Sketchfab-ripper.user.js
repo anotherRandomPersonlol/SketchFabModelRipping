@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name         Sketchfab Ripper
-// @version      1.1.1
+// @version      1.1.2
 // @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
+// @license      MIT
 // @match        https://sketchfab.com/*
 // @match        https://www.sketchfab.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js
@@ -51,6 +52,7 @@
         EXPORT_SCALE: 1,            // uniform scale on the scene root (0.01 for models authored in centimetres)
         FLAT_MR_FROM_VIEWER: true,  // true: metalness/roughness of texture-less materials as the viewer shows them; false: neutral metal 0 / rough 0.5
         DROP_STRIP_SLIVERS: true,   // drop long, near-zero-width bridging triangles inside triangle strips (the "stripes")
+        REDUCE_KEYS: true,          // drop keyframes that interpolation between the kept keys already reproduces (tolerance scales with the model size)
         DOUBLE_SIDED_AUTO: true,    // true: follow the viewer's Single Sided flag per material (cullFace != 0 -> single sided); false: use DOUBLE_SIDED for all
         DOUBLE_SIDED: true          // true: mark every material doubleSided (matches Sketchfab's default, Single Sided OFF); untick for single-sided export
     };
@@ -587,6 +589,78 @@
             if (tri) return i;
         }
         return -1;
+    }
+
+    // Keyframe reduction. Keeps the first and last key, and every key that is needed so that
+    // interpolation between the kept keys stays within tol of each recorded sample (per component).
+    // Rotations (isQuat) are checked with slerp, as glTF interpolates them. A segment spans at most
+    // maxSpan recorded frames, which limits the run time. Returns the indices of the kept keys.
+    function reduceKeys(times, vals, n, tol, isQuat, maxSpan) {
+        var nk = times.length, keep = [0], i = 0, j, k, c, ok, best, tmp = [0, 0, 0, 0];
+        if (nk < 3) { for (k = 1; k < nk; k++) keep.push(k); return keep; }
+        function interp(a, b, u) {
+            var ia = a * n, ib = b * n;
+            if (isQuat && n === 4) {
+                var dt = vals[ia] * vals[ib] + vals[ia + 1] * vals[ib + 1] + vals[ia + 2] * vals[ib + 2] + vals[ia + 3] * vals[ib + 3];
+                var sg = dt < 0 ? -1 : 1, w0, w1;
+                dt = Math.abs(dt);
+                if (dt > 0.9995) { w0 = 1 - u; w1 = u; }
+                else {
+                    var th = Math.acos(Math.min(1, dt)), sn = Math.sin(th);
+                    w0 = Math.sin((1 - u) * th) / sn; w1 = Math.sin(u * th) / sn;
+                }
+                var len = 0;
+                for (c = 0; c < 4; c++) { tmp[c] = w0 * vals[ia + c] + sg * w1 * vals[ib + c]; len += tmp[c] * tmp[c]; }
+                len = Math.sqrt(len) || 1;
+                for (c = 0; c < 4; c++) tmp[c] /= len;
+            } else {
+                for (c = 0; c < n; c++) tmp[c] = vals[ia + c] + (vals[ib + c] - vals[ia + c]) * u;
+            }
+        }
+        while (i < nk - 1) {
+            best = i + 1;
+            for (j = i + 2; j < nk && j - i <= maxSpan; j++) {
+                ok = true;
+                var span = times[j] - times[i];
+                for (k = i + 1; k < j && ok; k++) {
+                    interp(i, j, span > 0 ? (times[k] - times[i]) / span : 0);
+                    for (c = 0; c < n; c++) if (Math.abs(tmp[c] - vals[k * n + c]) > tol) { ok = false; break; }
+                }
+                if (!ok) break;
+                best = j;
+            }
+            keep.push(best);
+            i = best;
+        }
+        return keep;
+    }
+
+    // Remove nodes (the skipped wireframe overlay) and renumber every reference to a node.
+    // Changes the list in place and returns the new index of the scene root.
+    function removeNodes(nodes, skins, animations, drop, rootIdx) {
+        var remap = [], kept = [], i;
+        for (i = 0; i < nodes.length; i++) {
+            if (drop[i]) remap.push(-1);
+            else { remap.push(kept.length); kept.push(nodes[i]); }
+        }
+        kept.forEach(function (n) {
+            if (!n.children) return;
+            var c2 = [];
+            n.children.forEach(function (c) { if (remap[c] >= 0) c2.push(remap[c]); });
+            n.children = c2;
+        });
+        skins.forEach(function (sk) {
+            sk.joints = sk.joints.map(function (j) { return remap[j]; });
+            if (typeof sk.skeleton === 'number') sk.skeleton = remap[sk.skeleton];
+        });
+        (animations || []).forEach(function (a) {
+            a.channels.forEach(function (c) {
+                if (c.target && typeof c.target.node === 'number') c.target.node = remap[c.target.node];
+            });
+        });
+        nodes.length = 0;
+        kept.forEach(function (n) { nodes.push(n); });
+        return remap[rootIdx];
     }
 
     window.attachbody = function (obj) {
@@ -1234,6 +1308,7 @@
         row1.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label1 = document.createElement('span');
         label1.textContent = 'Max seconds:';
+        label1.title = 'Stops a manual recording after this time. RECORD and RECORD ALL CLIPS stop by themselves at the end of each clip.';
         row1.appendChild(label1);
         var input1 = document.createElement('input');
         input1.type = 'number';
@@ -1256,6 +1331,7 @@
         rowF.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var labelF = document.createElement('span');
         labelF.textContent = 'Record FPS:';
+        labelF.title = 'Frames per second in the recording. Max records every frame the viewer draws. Lower values make smaller files.';
         rowF.appendChild(labelF);
         var selF = document.createElement('select');
         selF.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
@@ -1277,6 +1353,7 @@
         row2.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label2 = document.createElement('span');
         label2.textContent = 'Auto-reload:';
+        label2.title = 'On: reloads the page one time if the script cannot connect to the viewer. Off: no reload.';
         row2.appendChild(label2);
         var check2 = document.createElement('input');
         check2.type = 'checkbox';
@@ -1292,6 +1369,7 @@
         row5.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label5 = document.createElement('span');
         label5.textContent = 'Double sided:';
+        label5.title = 'On: materials show both sides, as in the viewer. Off: materials show the front side only.';
         row5.appendChild(label5);
         var check5 = document.createElement('input');
         check5.type = 'checkbox';
@@ -1308,6 +1386,7 @@
         row5b.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label5b = document.createElement('span');
         label5b.textContent = 'Auto single sided (viewer flag):';
+        label5b.title = 'On: a material that the viewer shows single sided stays single sided. Off: the Double sided setting applies to all materials.';
         row5b.appendChild(label5b);
         var check5b = document.createElement('input');
         check5b.type = 'checkbox';
@@ -1324,6 +1403,7 @@
         row5c.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label5c = document.createElement('span');
         label5c.textContent = 'Drop strip slivers (stripes):';
+        label5c.title = 'On: removes long thin triangles that connect separate parts of a mesh. Off: keeps all triangles.';
         row5c.appendChild(label5c);
         var check5c = document.createElement('input');
         check5c.type = 'checkbox';
@@ -1336,10 +1416,28 @@
         row5c.appendChild(check5c);
         configDiv.appendChild(row5c);
 
+        var row5d = document.createElement('div');
+        row5d.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label5d = document.createElement('span');
+        label5d.textContent = 'Reduce keyframes:';
+        label5d.title = 'On: leaves out animation keys that the keys before and after them already give. The file is about half as large. Off: keeps every recorded frame.';
+        row5d.appendChild(label5d);
+        var check5d = document.createElement('input');
+        check5d.type = 'checkbox';
+        check5d.checked = !!CONFIG.REDUCE_KEYS;
+        check5d.addEventListener('change', function () {
+            CONFIG.REDUCE_KEYS = check5d.checked;
+            saveConfig();
+            log('reduce keyframes set to ' + check5d.checked);
+        });
+        row5d.appendChild(check5d);
+        configDiv.appendChild(row5d);
+
         var row6 = document.createElement('div');
         row6.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label6 = document.createElement('span');
         label6.textContent = 'Vertex color sRGB>linear:';
+        label6.title = 'On: converts vertex colors to linear color, as glTF requires. The colors then look as in the viewer. Off: writes the colors unchanged.';
         row6.appendChild(label6);
         var check6 = document.createElement('input');
         check6.type = 'checkbox';
@@ -1356,7 +1454,7 @@
         row7.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label7 = document.createElement('span');
         label7.textContent = 'Flat metal/rough from viewer:';
-        label7.title = 'On: texture-less materials use the viewer values. Off: neutral metal 0, roughness 0.5.';
+        label7.title = 'On: materials without textures use the metalness and roughness of the viewer. Off: metalness 0, roughness 0.5.';
         row7.appendChild(label7);
         var check7 = document.createElement('input');
         check7.type = 'checkbox';
@@ -1373,7 +1471,7 @@
         row8.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label8 = document.createElement('span');
         label8.textContent = 'Export scale:';
-        label8.title = 'Uniform scale of the whole model. 0.01 for models authored in centimetres.';
+        label8.title = 'Multiplies the size of the whole model. Use 0.01 for a model in centimeters.';
         row8.appendChild(label8);
         var input8 = document.createElement('input');
         input8.type = 'number';
@@ -1396,6 +1494,7 @@
         row3.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label3 = document.createElement('span');
         label3.textContent = 'MR format:';
+        label3.title = 'File format of the merged metallic-roughness textures. JPEG: smaller files. PNG: no quality loss.';
         row3.appendChild(label3);
         var sel3 = document.createElement('select');
         sel3.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
@@ -1417,6 +1516,7 @@
         row4.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label4 = document.createElement('span');
         label4.textContent = 'Rest pose:';
+        label4.title = 'Sets the rest pose of the skeleton. Clip 1st frame: the first recorded frame. Static Pose: the Static Pose of the viewer.';
         row4.appendChild(label4);
         var sel4 = document.createElement('select');
         sel4.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
@@ -1892,6 +1992,7 @@
 
             var meshes = [], accs = [], bvs = [], mats = [];
             var skippedNodes = {};    // node index -> true for wireframe overlay meshes that are not exported
+            var sceneSizeLocal = 0, sceneSizeWorld = 0;   // largest mesh diagonal (mesh units / world units), for key reduction
             var matsChannelInfo = {}; // mi -> { channelName: {url, name} }
             var matsFlat = {};        // mi -> { channelName: {enable, factor, color} } from the material model
             var binChunks = [], off = 0;   // Uint8Array chunks, joined once at the end
@@ -1942,6 +2043,16 @@
                 var accPos = accs.length;
                 accs.push({ bufferView: addBV(posArr, 34962), componentType: 5126,
                             count: vc, type: 'VEC3', min: posMin, max: posMax });
+                var dgl = Math.sqrt(Math.pow(posMax[0] - posMin[0], 2) + Math.pow(posMax[1] - posMin[1], 2) + Math.pow(posMax[2] - posMin[2], 2));
+                if (isFinite(dgl)) {
+                    var wmS = nodes[nodeMap.get(obj)] && nodes[nodeMap.get(obj)].matrix, wsc = 1;
+                    if (wmS && wmS.length === 16) {
+                        wsc = 0;
+                        for (var wc = 0; wc < 3; wc++) wsc = Math.max(wsc, Math.sqrt(wmS[wc * 4] * wmS[wc * 4] + wmS[wc * 4 + 1] * wmS[wc * 4 + 1] + wmS[wc * 4 + 2] * wmS[wc * 4 + 2]));
+                    }
+                    if (dgl > sceneSizeLocal) sceneSizeLocal = dgl;
+                    if (dgl * wsc > sceneSizeWorld) sceneSizeWorld = dgl * wsc;
+                }
 
                 var aN = -1, aU = -1, aI = -1, aJ = -1, aW = -1;
                 if (mdl.normal.length) {
@@ -2469,6 +2580,52 @@
             var gltfSkins = [];
             var animations;
 
+            // One sampler + channel. With REDUCE_KEYS, keys that interpolation already reproduces are left
+            // out and the channel gets its own, shorter time accessor. timeAccFn creates the full time
+            // accessor only when it is used, so no unused data is written.
+            var keyStats = { before: 0, after: 0 };
+            function lazyTimeAcc(times) {
+                var idx = -1;
+                return function () {
+                    if (idx < 0) {
+                        idx = accs.length;
+                        accs.push({ bufferView: addBV(new Float32Array(times)), componentType: 5126, count: times.length,
+                                    type: 'SCALAR', min: [times[0]], max: [times[times.length - 1]] });
+                    }
+                    return idx;
+                };
+            }
+            function emitSampler(tr, times, timeAccFn, data, n, type, nodeIdx, path, transTol) {
+                var outArr = data, count = times.length, tAcc = -1, q, c;
+                if (CONFIG.REDUCE_KEYS && count > 2) {
+                    var tol;
+                    if (path === 'rotation') tol = 1e-4;
+                    else if (path === 'scale') {
+                        var mxa = 0;
+                        for (q = 0; q < data.length; q++) if (Math.abs(data[q]) > mxa) mxa = Math.abs(data[q]);
+                        tol = 1e-4 * mxa;
+                    } else tol = transTol;
+                    var keep = reduceKeys(times, data, n, tol, path === 'rotation', 32);
+                    keyStats.before += count; keyStats.after += keep.length;
+                    if (keep.length < count) {
+                        var nt = [], nd = [];
+                        for (q = 0; q < keep.length; q++) {
+                            nt.push(times[keep[q]]);
+                            for (c = 0; c < n; c++) nd.push(data[keep[q] * n + c]);
+                        }
+                        outArr = nd; count = keep.length;
+                        tAcc = accs.length;
+                        accs.push({ bufferView: addBV(new Float32Array(nt)), componentType: 5126, count: count,
+                                    type: 'SCALAR', min: [nt[0]], max: [nt[count - 1]] });
+                    }
+                }
+                if (tAcc < 0) tAcc = timeAccFn();
+                var aO = accs.length;
+                accs.push({ bufferView: addBV(new Float32Array(outArr)), componentType: 5126, count: count, type: type });
+                tr.samplers.push({ input: tAcc, interpolation: 'LINEAR', output: aO });
+                tr.channels.push({ sampler: tr.samplers.length - 1, target: { node: nodeIdx, path: path } });
+            }
+
             // One time accessor + sampler/channel lists per clip.
             var tracks = clipSets.map(function (cs) {
                 // Start every clip at exactly t = 0 (the single-clip recorder's first frame
@@ -2476,12 +2633,22 @@
                 // accessor min/max match the buffer exactly.
                 var tFirst = cs.frames[0].time;
                 var times = cs.frames.map(function (f) { return Math.fround(f.time - tFirst); });
-                var tV = addBV(new Float32Array(times));
-                var tAcc = accs.length;
-                accs.push({ bufferView: tV, componentType: 5126, count: times.length,
-                            type: 'SCALAR', min: [times[0]], max: [times[times.length - 1]] });
-                return { name: cs.name, frames: cs.frames, times: times, timeAcc: tAcc,
-                         samplers: [], channels: [] };
+                // The time accessor is created on first use, so a clip without motion adds no unused data.
+                var tAcc = -1;
+                var trk = { name: cs.name, frames: cs.frames, times: times, samplers: [], channels: [] };
+                Object.defineProperty(trk, 'timeAcc', {
+                    enumerable: true,
+                    get: function () {
+                        if (tAcc < 0) {
+                            var tV = addBV(new Float32Array(times));
+                            tAcc = accs.length;
+                            accs.push({ bufferView: tV, componentType: 5126, count: times.length,
+                                        type: 'SCALAR', min: [times[0]], max: [times[times.length - 1]] });
+                        }
+                        return tAcc;
+                    }
+                });
+                return trk;
             });
 
             function expandMat3x4(pal, boneIdx) {
@@ -2702,7 +2869,7 @@
                             // Show/hide by scale (scale jumps between ~0 and visible from one sample to the next): the
                             // viewer switches instantly, LINEAR would blend both shapes between the two samples. Hold the old
                             // value until just before the next sample so the switch stays near-instant.
-                            var jTimes = tr.times, jTimeAcc = tr.timeAcc;
+                            var jTimes = tr.times, jTimeFn = (function (t0) { return function () { return t0.timeAcc; }; })(tr);
                             (function () {
                                 var nF = jTimes.length, mags = [], mxs = 0, hi, hk;
                                 for (hi = 0; hi < nF; hi++) {
@@ -2732,40 +2899,15 @@
                                 }
                                 T = nT; R = nR; S = nS; if (RV.length) RV = nRV;
                                 jTimes = nt;
-                                jTimeAcc = accs.length;
-                                accs.push({ bufferView: addBV(new Float32Array(nt)), componentType: 5126, count: nt.length,
-                                            type: 'SCALAR', min: [nt[0]], max: [nt[nt.length - 1]] });
+                                jTimeFn = lazyTimeAcc(nt);
                                 holdJoints++;
                             })();
 
-                            var aT = accs.length;
-                            accs.push({ bufferView: addBV(new Float32Array(T)), componentType: 5126,
-                                        count: jTimes.length, type: 'VEC3' });
-                            tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aT });
-                            tr.channels.push({ sampler: tr.samplers.length - 1,
-                                               target: { node: tgtTRS, path: 'translation' } });
-
-                            var aR = accs.length;
-                            accs.push({ bufferView: addBV(new Float32Array(R)), componentType: 5126,
-                                        count: jTimes.length, type: 'VEC4' });
-                            tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aR });
-                            tr.channels.push({ sampler: tr.samplers.length - 1,
-                                               target: { node: tgtTRS, path: 'rotation' } });
-
-                            var aS = accs.length;
-                            accs.push({ bufferView: addBV(new Float32Array(S)), componentType: 5126,
-                                        count: jTimes.length, type: 'VEC3' });
-                            tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aS });
-                            tr.channels.push({ sampler: tr.samplers.length - 1,
-                                               target: { node: tgtTRS, path: 'scale' } });
-                            if (shearJ[jn]) {
-                                var aRV = accs.length;
-                                accs.push({ bufferView: addBV(new Float32Array(RV)), componentType: 5126,
-                                            count: jTimes.length, type: 'VEC4' });
-                                tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aRV });
-                                tr.channels.push({ sampler: tr.samplers.length - 1,
-                                                   target: { node: nIdx, path: 'rotation' } });
-                            }
+                            var tolJ = 1e-5 * (sceneSizeLocal || 1);
+                            emitSampler(tr, jTimes, jTimeFn, T, 3, 'VEC3', tgtTRS, 'translation', tolJ);
+                            emitSampler(tr, jTimes, jTimeFn, R, 4, 'VEC4', tgtTRS, 'rotation', tolJ);
+                            emitSampler(tr, jTimes, jTimeFn, S, 3, 'VEC3', tgtTRS, 'scale', tolJ);
+                            if (shearJ[jn]) emitSampler(tr, jTimes, jTimeFn, RV, 4, 'VEC4', nIdx, 'rotation', tolJ);
                         }
                     }
 
@@ -2867,14 +3009,11 @@
                     R.push(d4.rotation[0], d4.rotation[1], d4.rotation[2], d4.rotation[3]);
                     S.push(d4.scale[0], d4.scale[1], d4.scale[2]);
                 }
-                var paths = [['translation', T, 'VEC3'], ['rotation', R, 'VEC4'], ['scale', S, 'VEC3']];
-                paths.forEach(function (pp) {
-                    var aX = accs.length;
-                    accs.push({ bufferView: addBV(new Float32Array(pp[1])), componentType: 5126,
-                                count: tr.times.length, type: pp[2] });
-                    tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aX });
-                    tr.channels.push({ sampler: tr.samplers.length - 1, target: { node: nIdx, path: pp[0] } });
-                });
+                var tolN = 1e-5 * (sceneSizeWorld || 1);
+                var trFn = function () { return tr.timeAcc; };
+                emitSampler(tr, tr.times, trFn, T, 3, 'VEC3', nIdx, 'translation', tolN);
+                emitSampler(tr, tr.times, trFn, R, 4, 'VEC4', nIdx, 'rotation', tolN);
+                emitSampler(tr, tr.times, trFn, S, 3, 'VEC3', nIdx, 'scale', tolN);
             }
 
             if (hasFrames) {
@@ -2969,6 +3108,8 @@
                     }
                 });
                 if (noMotion.length) log('clips without motion, not exported (' + noMotion.length + '): ' + noMotion.join(', '));
+                if (keyStats.before) log('keyframes reduced: ' + keyStats.before + ' -> ' + keyStats.after + ' (' +
+                    Math.round(100 * keyStats.after / keyStats.before) + '% kept, translation tolerance ' + (1e-5 * (sceneSizeLocal || 1)).toPrecision(2) + ')');
                 if (animList.length) animations = animList;
             }
 
@@ -2994,6 +3135,9 @@
             naturalRoots.forEach(function (r) {
                 nodes[sceneRootIdx].children.push(r);
             });
+            if (Object.keys(skippedNodes).length) {
+                sceneRootIdx = removeNodes(nodes, gltfSkins, animations, skippedNodes, sceneRootIdx);
+            }
 
             nodes.forEach(function (n, ni) {
                 if (ni === sceneRootIdx || !n.matrix) return;
@@ -3087,10 +3231,10 @@
             zip.file(modelName + '.glb', new Blob([glb], { type: 'application/octet-stream' }));
             for (var tn in zipTex) {
                 if (zipTex.hasOwnProperty(tn) && objects[tn]) {
-                    zip.file('textures/' + zipTex[tn], objects[tn]);
+                    zip.file('textures/' + zipTex[tn], objects[tn], { compression: 'STORE' });   // PNG/JPEG are already compressed
                 }
             }
-            zip.generateAsync({ type: 'blob' }).then(function (content) {
+            zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }).then(function (content) {
                 saveAs(content, modelName + '.zip');
                 log('export done:', modelName + '.zip');
                 _exporting = false;
