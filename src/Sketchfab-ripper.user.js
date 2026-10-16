@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sketchfab Ripper
-// @version      1.1.1
+// @version      1.1.2
 // @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
 // @match        https://sketchfab.com/*
@@ -587,6 +587,34 @@
             if (tri) return i;
         }
         return -1;
+    }
+
+    // Remove nodes (the skipped wireframe overlay) and renumber every reference to a node.
+    // Changes the list in place and returns the new index of the scene root.
+    function removeNodes(nodes, skins, animations, drop, rootIdx) {
+        var remap = [], kept = [], i;
+        for (i = 0; i < nodes.length; i++) {
+            if (drop[i]) remap.push(-1);
+            else { remap.push(kept.length); kept.push(nodes[i]); }
+        }
+        kept.forEach(function (n) {
+            if (!n.children) return;
+            var c2 = [];
+            n.children.forEach(function (c) { if (remap[c] >= 0) c2.push(remap[c]); });
+            n.children = c2;
+        });
+        skins.forEach(function (sk) {
+            sk.joints = sk.joints.map(function (j) { return remap[j]; });
+            if (typeof sk.skeleton === 'number') sk.skeleton = remap[sk.skeleton];
+        });
+        (animations || []).forEach(function (a) {
+            a.channels.forEach(function (c) {
+                if (c.target && typeof c.target.node === 'number') c.target.node = remap[c.target.node];
+            });
+        });
+        nodes.length = 0;
+        kept.forEach(function (n) { nodes.push(n); });
+        return remap[rootIdx];
     }
 
     window.attachbody = function (obj) {
@@ -2476,12 +2504,22 @@
                 // accessor min/max match the buffer exactly.
                 var tFirst = cs.frames[0].time;
                 var times = cs.frames.map(function (f) { return Math.fround(f.time - tFirst); });
-                var tV = addBV(new Float32Array(times));
-                var tAcc = accs.length;
-                accs.push({ bufferView: tV, componentType: 5126, count: times.length,
-                            type: 'SCALAR', min: [times[0]], max: [times[times.length - 1]] });
-                return { name: cs.name, frames: cs.frames, times: times, timeAcc: tAcc,
-                         samplers: [], channels: [] };
+                // The time accessor is created on first use, so a clip without motion adds no unused data.
+                var tAcc = -1;
+                var trk = { name: cs.name, frames: cs.frames, times: times, samplers: [], channels: [] };
+                Object.defineProperty(trk, 'timeAcc', {
+                    enumerable: true,
+                    get: function () {
+                        if (tAcc < 0) {
+                            var tV = addBV(new Float32Array(times));
+                            tAcc = accs.length;
+                            accs.push({ bufferView: tV, componentType: 5126, count: times.length,
+                                        type: 'SCALAR', min: [times[0]], max: [times[times.length - 1]] });
+                        }
+                        return tAcc;
+                    }
+                });
+                return trk;
             });
 
             function expandMat3x4(pal, boneIdx) {
@@ -2994,6 +3032,9 @@
             naturalRoots.forEach(function (r) {
                 nodes[sceneRootIdx].children.push(r);
             });
+            if (Object.keys(skippedNodes).length) {
+                sceneRootIdx = removeNodes(nodes, gltfSkins, animations, skippedNodes, sceneRootIdx);
+            }
 
             nodes.forEach(function (n, ni) {
                 if (ni === sceneRootIdx || !n.matrix) return;

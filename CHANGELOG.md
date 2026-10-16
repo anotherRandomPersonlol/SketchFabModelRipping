@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.2
+
+### Fixed
+- The GLB no longer has an empty node for the skipped wireframe overlay.
+- The GLB no longer has unused time data for clips that are not exported.
+
 ## v1.1.1
 
 ### Fixed
