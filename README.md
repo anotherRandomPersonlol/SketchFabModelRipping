@@ -94,6 +94,7 @@ These models were exported with the script and opened in Blender. The list grows
 - [Just a girl](https://sketchfab.com/3d-models/just-a-girl-b2359160a4f54e76b5ae427a55d9594d)
 - [Shiba](https://sketchfab.com/3d-models/shiba-faef9fe5ace445e7b2989d1c1ece361c)
 - [FREE 1975 Porsche 911 (930) Turbo](https://sketchfab.com/3d-models/free-1975-porsche-911-930-turbo-8568d9d14a994b9cae59499f0dbed21e)
+- [Simple rigged and animated character](https://sketchfab.com/3d-models/simple-rigged-and-animated-character-18ba27a4a60b4b70be6d80234ae62413)
 
 A model that fails? Please [report it](#report-a-problem).
 
