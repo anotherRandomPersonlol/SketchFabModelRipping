@@ -32,7 +32,7 @@ Tested with Tampermonkey (Chrome) and Violentmonkey (Firefox).
 1. Install Tampermonkey in your browser.
 2. Open one of these links:
    - [Greasy Fork](https://greasyfork.org/en/scripts/600578-sketchfab-ripper)
-   - [GitHub (Sketchfab-ripper.user.js)](https://raw.githubusercontent.com/anotherRandomPersonlol/SketchFabModelRipping/main/src/Sketchfab-ripper.user.js)
+   - [GitHub (Sketchfab-ripper.user.js)](https://raw.githubusercontent.com/anotherRandomPersonlol/Sketchfab-Ripper/main/src/Sketchfab-ripper.user.js)
 3. In the Tampermonkey page that opens, click **Install**.
 
 Install from one place only. If you have the script from both, remove one copy.

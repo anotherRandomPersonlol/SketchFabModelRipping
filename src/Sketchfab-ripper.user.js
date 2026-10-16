@@ -1,19 +1,19 @@
 // ==UserScript==
 // @name         Sketchfab Ripper
 // @namespace    https://github.com/anotherRandomPersonlol/SketchFabModelRipping
-// @version      1.3.1
+// @version      1.3.2
 // @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
 // @license      MIT
-// @icon         https://raw.githubusercontent.com/anotherRandomPersonlol/SketchFabModelRipping/main/docs/icon64.png
+// @icon         https://raw.githubusercontent.com/anotherRandomPersonlol/Sketchfab-Ripper/main/docs/icon64.png
 // @match        https://sketchfab.com/*
 // @match        https://www.sketchfab.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js
 // @run-at       document-start
 // @grant        unsafeWindow
-// @homepageURL  https://github.com/anotherRandomPersonlol/SketchFabModelRipping
-// @supportURL   https://github.com/anotherRandomPersonlol/SketchFabModelRipping/issues
+// @homepageURL  https://github.com/anotherRandomPersonlol/Sketchfab-Ripper
+// @supportURL   https://github.com/anotherRandomPersonlol/Sketchfab-Ripper/issues
 // ==/UserScript==
 // Based off Risk's extraction
 (() => {

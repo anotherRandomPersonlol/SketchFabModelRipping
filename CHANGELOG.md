@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.2
+
+### Changed
+- The repository is now github.com/anotherRandomPersonlol/Sketchfab-Ripper. The home, support and icon links in the script header use the new address. The `@namespace` line stays the same, so Tampermonkey keeps treating it as the same script.
+
 ## v1.3.1
 
 ### Changed
