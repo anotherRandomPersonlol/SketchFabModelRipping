@@ -438,3 +438,11 @@ instead of name; collision only if an artist texture is literally named <mesh>_M
   helper node path stays. Static/unanimated sheared joints always use the IBM path (exact for one matrix).
 - Offline conversion of the same export to this layout: three.js-exact (9e-6) and Blender error 3e-5 (float precision), down from 1.2e-2.
   Log: `skin N: k sheared joint(s) stored exactly via the inverse bind matrix (plain TRS joints)`.
+
+## Round 19: wireframe overlay, validator infos, file size (v1.1.1, v1.1.2)
+
+- Test model "Simple rigged and animated character" (CC BY). The export had a second mesh: a LINES-only copy with the same 852 vertices, every segment a triangle edge. It is the viewer's wireframe display (Model Inspector > Wireframe). `wireOverlayTwin` skips a lines-only mesh when another mesh with triangles has the same sampled vertices. A line mesh without such a twin is still exported. `removeNodes` then removes its empty node and renumbers children, skin joints and animation targets.
+- 8 clips of that model are one-frame poses with no motion. They are not exported; the log lists them. The original Sketchfab download renders as a blob in the three.js glTF viewer: its 569 animation output accessors have a byteStride (validator ANIMATION_SAMPLER_ACCESSOR_WITH_BYTESTRIDE), which three.js reads as interleaved. Our export packs them tightly.
+- Time accessors are created on first use, so clips without motion add no unused accessors.
+- File size: animation data was 97% of the GLB. `reduceKeys` keeps the first and last key and every key needed so that interpolation between kept keys stays within tolerance of every recorded sample (slerp for rotations, segments of at most 32 frames). Tolerances: translation 1e-5 x the largest mesh diagonal, rotation 1e-4 per quaternion component, scale 1e-4 x the largest scale value of the channel. On the test model 45% of the keys stay; the worst error at any recorded sample is within the tolerance (checked with exact glTF interpolation). Hold keys (show/hide by scale) stay because removing them breaks the tolerance. Setting: Reduce keyframes (REDUCE_KEYS, default on).
+- The zip uses DEFLATE (level 6); textures are stored, as PNG/JPEG are already compressed.

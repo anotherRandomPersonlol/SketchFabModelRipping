@@ -51,6 +51,7 @@
         EXPORT_SCALE: 1,            // uniform scale on the scene root (0.01 for models authored in centimetres)
         FLAT_MR_FROM_VIEWER: true,  // true: metalness/roughness of texture-less materials as the viewer shows them; false: neutral metal 0 / rough 0.5
         DROP_STRIP_SLIVERS: true,   // drop long, near-zero-width bridging triangles inside triangle strips (the "stripes")
+        REDUCE_KEYS: true,          // drop keyframes that interpolation between the kept keys already reproduces (tolerance scales with the model size)
         DOUBLE_SIDED_AUTO: true,    // true: follow the viewer's Single Sided flag per material (cullFace != 0 -> single sided); false: use DOUBLE_SIDED for all
         DOUBLE_SIDED: true          // true: mark every material doubleSided (matches Sketchfab's default, Single Sided OFF); untick for single-sided export
     };
@@ -587,6 +588,50 @@
             if (tri) return i;
         }
         return -1;
+    }
+
+    // Keyframe reduction. Keeps the first and last key, and every key that is needed so that
+    // interpolation between the kept keys stays within tol of each recorded sample (per component).
+    // Rotations (isQuat) are checked with slerp, as glTF interpolates them. A segment spans at most
+    // maxSpan recorded frames, which limits the run time. Returns the indices of the kept keys.
+    function reduceKeys(times, vals, n, tol, isQuat, maxSpan) {
+        var nk = times.length, keep = [0], i = 0, j, k, c, ok, best, tmp = [0, 0, 0, 0];
+        if (nk < 3) { for (k = 1; k < nk; k++) keep.push(k); return keep; }
+        function interp(a, b, u) {
+            var ia = a * n, ib = b * n;
+            if (isQuat && n === 4) {
+                var dt = vals[ia] * vals[ib] + vals[ia + 1] * vals[ib + 1] + vals[ia + 2] * vals[ib + 2] + vals[ia + 3] * vals[ib + 3];
+                var sg = dt < 0 ? -1 : 1, w0, w1;
+                dt = Math.abs(dt);
+                if (dt > 0.9995) { w0 = 1 - u; w1 = u; }
+                else {
+                    var th = Math.acos(Math.min(1, dt)), sn = Math.sin(th);
+                    w0 = Math.sin((1 - u) * th) / sn; w1 = Math.sin(u * th) / sn;
+                }
+                var len = 0;
+                for (c = 0; c < 4; c++) { tmp[c] = w0 * vals[ia + c] + sg * w1 * vals[ib + c]; len += tmp[c] * tmp[c]; }
+                len = Math.sqrt(len) || 1;
+                for (c = 0; c < 4; c++) tmp[c] /= len;
+            } else {
+                for (c = 0; c < n; c++) tmp[c] = vals[ia + c] + (vals[ib + c] - vals[ia + c]) * u;
+            }
+        }
+        while (i < nk - 1) {
+            best = i + 1;
+            for (j = i + 2; j < nk && j - i <= maxSpan; j++) {
+                ok = true;
+                var span = times[j] - times[i];
+                for (k = i + 1; k < j && ok; k++) {
+                    interp(i, j, span > 0 ? (times[k] - times[i]) / span : 0);
+                    for (c = 0; c < n; c++) if (Math.abs(tmp[c] - vals[k * n + c]) > tol) { ok = false; break; }
+                }
+                if (!ok) break;
+                best = j;
+            }
+            keep.push(best);
+            i = best;
+        }
+        return keep;
     }
 
     // Remove nodes (the skipped wireframe overlay) and renumber every reference to a node.
@@ -1364,6 +1409,23 @@
         row5c.appendChild(check5c);
         configDiv.appendChild(row5c);
 
+        var row5d = document.createElement('div');
+        row5d.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label5d = document.createElement('span');
+        label5d.textContent = 'Reduce keyframes:';
+        label5d.title = 'On: smaller file, keys that interpolation already reproduces are left out. Off: every recorded frame is kept.';
+        row5d.appendChild(label5d);
+        var check5d = document.createElement('input');
+        check5d.type = 'checkbox';
+        check5d.checked = !!CONFIG.REDUCE_KEYS;
+        check5d.addEventListener('change', function () {
+            CONFIG.REDUCE_KEYS = check5d.checked;
+            saveConfig();
+            log('reduce keyframes set to ' + check5d.checked);
+        });
+        row5d.appendChild(check5d);
+        configDiv.appendChild(row5d);
+
         var row6 = document.createElement('div');
         row6.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label6 = document.createElement('span');
@@ -1920,6 +1982,7 @@
 
             var meshes = [], accs = [], bvs = [], mats = [];
             var skippedNodes = {};    // node index -> true for wireframe overlay meshes that are not exported
+            var sceneSizeLocal = 0, sceneSizeWorld = 0;   // largest mesh diagonal (mesh units / world units), for key reduction
             var matsChannelInfo = {}; // mi -> { channelName: {url, name} }
             var matsFlat = {};        // mi -> { channelName: {enable, factor, color} } from the material model
             var binChunks = [], off = 0;   // Uint8Array chunks, joined once at the end
@@ -1970,6 +2033,16 @@
                 var accPos = accs.length;
                 accs.push({ bufferView: addBV(posArr, 34962), componentType: 5126,
                             count: vc, type: 'VEC3', min: posMin, max: posMax });
+                var dgl = Math.sqrt(Math.pow(posMax[0] - posMin[0], 2) + Math.pow(posMax[1] - posMin[1], 2) + Math.pow(posMax[2] - posMin[2], 2));
+                if (isFinite(dgl)) {
+                    var wmS = nodes[nodeMap.get(obj)] && nodes[nodeMap.get(obj)].matrix, wsc = 1;
+                    if (wmS && wmS.length === 16) {
+                        wsc = 0;
+                        for (var wc = 0; wc < 3; wc++) wsc = Math.max(wsc, Math.sqrt(wmS[wc * 4] * wmS[wc * 4] + wmS[wc * 4 + 1] * wmS[wc * 4 + 1] + wmS[wc * 4 + 2] * wmS[wc * 4 + 2]));
+                    }
+                    if (dgl > sceneSizeLocal) sceneSizeLocal = dgl;
+                    if (dgl * wsc > sceneSizeWorld) sceneSizeWorld = dgl * wsc;
+                }
 
                 var aN = -1, aU = -1, aI = -1, aJ = -1, aW = -1;
                 if (mdl.normal.length) {
@@ -2497,6 +2570,52 @@
             var gltfSkins = [];
             var animations;
 
+            // One sampler + channel. With REDUCE_KEYS, keys that interpolation already reproduces are left
+            // out and the channel gets its own, shorter time accessor. timeAccFn creates the full time
+            // accessor only when it is used, so no unused data is written.
+            var keyStats = { before: 0, after: 0 };
+            function lazyTimeAcc(times) {
+                var idx = -1;
+                return function () {
+                    if (idx < 0) {
+                        idx = accs.length;
+                        accs.push({ bufferView: addBV(new Float32Array(times)), componentType: 5126, count: times.length,
+                                    type: 'SCALAR', min: [times[0]], max: [times[times.length - 1]] });
+                    }
+                    return idx;
+                };
+            }
+            function emitSampler(tr, times, timeAccFn, data, n, type, nodeIdx, path, transTol) {
+                var outArr = data, count = times.length, tAcc = -1, q, c;
+                if (CONFIG.REDUCE_KEYS && count > 2) {
+                    var tol;
+                    if (path === 'rotation') tol = 1e-4;
+                    else if (path === 'scale') {
+                        var mxa = 0;
+                        for (q = 0; q < data.length; q++) if (Math.abs(data[q]) > mxa) mxa = Math.abs(data[q]);
+                        tol = 1e-4 * mxa;
+                    } else tol = transTol;
+                    var keep = reduceKeys(times, data, n, tol, path === 'rotation', 32);
+                    keyStats.before += count; keyStats.after += keep.length;
+                    if (keep.length < count) {
+                        var nt = [], nd = [];
+                        for (q = 0; q < keep.length; q++) {
+                            nt.push(times[keep[q]]);
+                            for (c = 0; c < n; c++) nd.push(data[keep[q] * n + c]);
+                        }
+                        outArr = nd; count = keep.length;
+                        tAcc = accs.length;
+                        accs.push({ bufferView: addBV(new Float32Array(nt)), componentType: 5126, count: count,
+                                    type: 'SCALAR', min: [nt[0]], max: [nt[count - 1]] });
+                    }
+                }
+                if (tAcc < 0) tAcc = timeAccFn();
+                var aO = accs.length;
+                accs.push({ bufferView: addBV(new Float32Array(outArr)), componentType: 5126, count: count, type: type });
+                tr.samplers.push({ input: tAcc, interpolation: 'LINEAR', output: aO });
+                tr.channels.push({ sampler: tr.samplers.length - 1, target: { node: nodeIdx, path: path } });
+            }
+
             // One time accessor + sampler/channel lists per clip.
             var tracks = clipSets.map(function (cs) {
                 // Start every clip at exactly t = 0 (the single-clip recorder's first frame
@@ -2740,7 +2859,7 @@
                             // Show/hide by scale (scale jumps between ~0 and visible from one sample to the next): the
                             // viewer switches instantly, LINEAR would blend both shapes between the two samples. Hold the old
                             // value until just before the next sample so the switch stays near-instant.
-                            var jTimes = tr.times, jTimeAcc = tr.timeAcc;
+                            var jTimes = tr.times, jTimeFn = (function (t0) { return function () { return t0.timeAcc; }; })(tr);
                             (function () {
                                 var nF = jTimes.length, mags = [], mxs = 0, hi, hk;
                                 for (hi = 0; hi < nF; hi++) {
@@ -2770,40 +2889,15 @@
                                 }
                                 T = nT; R = nR; S = nS; if (RV.length) RV = nRV;
                                 jTimes = nt;
-                                jTimeAcc = accs.length;
-                                accs.push({ bufferView: addBV(new Float32Array(nt)), componentType: 5126, count: nt.length,
-                                            type: 'SCALAR', min: [nt[0]], max: [nt[nt.length - 1]] });
+                                jTimeFn = lazyTimeAcc(nt);
                                 holdJoints++;
                             })();
 
-                            var aT = accs.length;
-                            accs.push({ bufferView: addBV(new Float32Array(T)), componentType: 5126,
-                                        count: jTimes.length, type: 'VEC3' });
-                            tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aT });
-                            tr.channels.push({ sampler: tr.samplers.length - 1,
-                                               target: { node: tgtTRS, path: 'translation' } });
-
-                            var aR = accs.length;
-                            accs.push({ bufferView: addBV(new Float32Array(R)), componentType: 5126,
-                                        count: jTimes.length, type: 'VEC4' });
-                            tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aR });
-                            tr.channels.push({ sampler: tr.samplers.length - 1,
-                                               target: { node: tgtTRS, path: 'rotation' } });
-
-                            var aS = accs.length;
-                            accs.push({ bufferView: addBV(new Float32Array(S)), componentType: 5126,
-                                        count: jTimes.length, type: 'VEC3' });
-                            tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aS });
-                            tr.channels.push({ sampler: tr.samplers.length - 1,
-                                               target: { node: tgtTRS, path: 'scale' } });
-                            if (shearJ[jn]) {
-                                var aRV = accs.length;
-                                accs.push({ bufferView: addBV(new Float32Array(RV)), componentType: 5126,
-                                            count: jTimes.length, type: 'VEC4' });
-                                tr.samplers.push({ input: jTimeAcc, interpolation: 'LINEAR', output: aRV });
-                                tr.channels.push({ sampler: tr.samplers.length - 1,
-                                                   target: { node: nIdx, path: 'rotation' } });
-                            }
+                            var tolJ = 1e-5 * (sceneSizeLocal || 1);
+                            emitSampler(tr, jTimes, jTimeFn, T, 3, 'VEC3', tgtTRS, 'translation', tolJ);
+                            emitSampler(tr, jTimes, jTimeFn, R, 4, 'VEC4', tgtTRS, 'rotation', tolJ);
+                            emitSampler(tr, jTimes, jTimeFn, S, 3, 'VEC3', tgtTRS, 'scale', tolJ);
+                            if (shearJ[jn]) emitSampler(tr, jTimes, jTimeFn, RV, 4, 'VEC4', nIdx, 'rotation', tolJ);
                         }
                     }
 
@@ -2905,14 +2999,11 @@
                     R.push(d4.rotation[0], d4.rotation[1], d4.rotation[2], d4.rotation[3]);
                     S.push(d4.scale[0], d4.scale[1], d4.scale[2]);
                 }
-                var paths = [['translation', T, 'VEC3'], ['rotation', R, 'VEC4'], ['scale', S, 'VEC3']];
-                paths.forEach(function (pp) {
-                    var aX = accs.length;
-                    accs.push({ bufferView: addBV(new Float32Array(pp[1])), componentType: 5126,
-                                count: tr.times.length, type: pp[2] });
-                    tr.samplers.push({ input: tr.timeAcc, interpolation: 'LINEAR', output: aX });
-                    tr.channels.push({ sampler: tr.samplers.length - 1, target: { node: nIdx, path: pp[0] } });
-                });
+                var tolN = 1e-5 * (sceneSizeWorld || 1);
+                var trFn = function () { return tr.timeAcc; };
+                emitSampler(tr, tr.times, trFn, T, 3, 'VEC3', nIdx, 'translation', tolN);
+                emitSampler(tr, tr.times, trFn, R, 4, 'VEC4', nIdx, 'rotation', tolN);
+                emitSampler(tr, tr.times, trFn, S, 3, 'VEC3', nIdx, 'scale', tolN);
             }
 
             if (hasFrames) {
@@ -3007,6 +3098,8 @@
                     }
                 });
                 if (noMotion.length) log('clips without motion, not exported (' + noMotion.length + '): ' + noMotion.join(', '));
+                if (keyStats.before) log('keyframes reduced: ' + keyStats.before + ' -> ' + keyStats.after + ' (' +
+                    Math.round(100 * keyStats.after / keyStats.before) + '% kept, translation tolerance ' + (1e-5 * (sceneSizeLocal || 1)).toPrecision(2) + ')');
                 if (animList.length) animations = animList;
             }
 
@@ -3128,10 +3221,10 @@
             zip.file(modelName + '.glb', new Blob([glb], { type: 'application/octet-stream' }));
             for (var tn in zipTex) {
                 if (zipTex.hasOwnProperty(tn) && objects[tn]) {
-                    zip.file('textures/' + zipTex[tn], objects[tn]);
+                    zip.file('textures/' + zipTex[tn], objects[tn], { compression: 'STORE' });   // PNG/JPEG are already compressed
                 }
             }
-            zip.generateAsync({ type: 'blob' }).then(function (content) {
+            zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }).then(function (content) {
                 saveAs(content, modelName + '.zip');
                 log('export done:', modelName + '.zip');
                 _exporting = false;
