@@ -7,6 +7,7 @@
 
 ### Changed
 - The log names the clips that are not exported because they do not move.
+- The script header uses `@match` and not a regular expression in `@include`. The script runs on the same pages as before.
 
 ## v1.1.0
 

@@ -3,7 +3,8 @@
 // @version      1.1.1
 // @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
-// @include      /^https?://(www\.)?sketchfab\.com/.*
+// @match        https://sketchfab.com/*
+// @match        https://www.sketchfab.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js
 // @run-at       document-start
