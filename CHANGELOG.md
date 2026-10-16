@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.4
+
+### Changed
+- The script header has a `@namespace` line (Greasy Fork needs it). Tampermonkey sees this as a new script, so a user who installed an older version can have two copies. Remove the old copy.
+
 ## v1.1.3
 
 ### Changed

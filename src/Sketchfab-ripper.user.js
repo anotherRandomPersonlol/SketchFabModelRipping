@@ -1,6 +1,7 @@
 // ==UserScript==
 // @name         Sketchfab Ripper
-// @version      1.1.3
+// @namespace    https://github.com/anotherRandomPersonlol/SketchFabModelRipping
+// @version      1.1.4
 // @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
 // @license      MIT
