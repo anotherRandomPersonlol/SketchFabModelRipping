@@ -90,9 +90,9 @@
     ];
 
     const TAG = '[Ripper]';
-    function log()  { console.log.apply(console, [TAG].concat([].slice.call(arguments))); }
-    function warn() { console.warn.apply(console, [TAG].concat([].slice.call(arguments))); }
-    function err()  { console.error.apply(console, [TAG].concat([].slice.call(arguments))); }
+    function log(...args)  { console.log(TAG, ...args); }
+    function warn(...args) { console.warn(TAG, ...args); }
+    function err(...args)  { console.error(TAG, ...args); }
 
     log('init');
 
@@ -258,7 +258,7 @@
             scale: sig,
             // V^T as a rotation: its columns are the rows of V-as-columns
             rotV: _quatFromCols([V[0][0], V[1][0], V[2][0]], [V[0][1], V[1][1], V[2][1]], [V[0][2], V[1][2], V[2][2]]),
-            V: V,
+            V,
             uniform: lmax - lmin <= 1e-6 * Math.max(lmax, 1e-30)
         };
     }
@@ -765,7 +765,7 @@
                     for (let i = 0; i < src.length; i++) pal[i] = src[i];
                 }
             } catch (e) {}
-            meshesOut.push({ world: world, palette: pal, weights: wts });
+            meshesOut.push({ world, palette: pal, weights: wts });
         });
         return { meshes: meshesOut };
     }
@@ -956,7 +956,7 @@
                 const act = activeClipUids(mgr);
                 if (act.length === 1) {
                     const inst = mgr._instanceAnimations[act[0]];
-                    defs.push({ index: k, uid: act[0], name: name,
+                    defs.push({ index: k, uid: act[0], name,
                                 duration: inst ? inst.duration : 0 });
                 } else if (act.length === 0) {
                     noClipIdx = k;
@@ -1189,7 +1189,7 @@
                     if (window.clipCancel) {
                         warn(`clip discarded (cancelled): ${d.name}`);
                     } else if (frames && frames.length > 1) {
-                        window.clips.push({ name: d.name, uid: d.uid, frames: frames });
+                        window.clips.push({ name: d.name, uid: d.uid, frames });
                         log(`clip recorded: ${d.name} frames=${frames.length}`);
                     } else {
                         warn(`clip skipped: ${d.name}`);
@@ -1651,8 +1651,8 @@
             normal: attr.Normal ? attr.Normal._elements : [],
             uv: uvAttr ? uvAttr._elements : [],
             color: (attr.Color && attr.Color._elements) ? attr.Color._elements : [],
-            joints: joints,
-            weights: weights,
+            joints,
+            weights,
             primitives: list
         };
     }
@@ -1738,7 +1738,7 @@
             const ext  = useJpeg ? '.jpg' : '.png';
             const q    = useJpeg ? 0.92 : undefined;
             return new Promise((res) => {
-                oc.toBlob((b) => { res({ blob: b, ext: ext, hasM: !!mBmp, hasR: !!(rBmp || gBmp) }); }, mime, q);
+                oc.toBlob((b) => { res({ blob: b, ext, hasM: !!mBmp, hasR: !!(rBmp || gBmp) }); }, mime, q);
             });
         });
     }
@@ -1937,7 +1937,7 @@
                 if (!_blobForUrl(cm[ch].url)) missing++;
             }
         });
-        return { expected: expected, missing: missing };
+        return { expected, missing };
     }
 
     function waitForTextures() {
@@ -2003,7 +2003,7 @@
                 nodeMap.set(obj, idx);
                 const name = obj._name || (obj.stateset && obj.stateset._name) || (`mesh_${idx}`);
                 const world = computeWorldMatrix(obj);
-                nodes.push({ name: name, matrix: world, mesh: undefined, children: [] });
+                nodes.push({ name, matrix: world, mesh: undefined, children: [] });
             });
 
             const meshes = [], accs = [], bvs = [], mats = [];
@@ -2631,15 +2631,15 @@
                         }
                         outArr = nd; count = keep.length;
                         tAcc = accs.length;
-                        accs.push({ bufferView: addBV(new Float32Array(nt)), componentType: 5126, count: count,
+                        accs.push({ bufferView: addBV(new Float32Array(nt)), componentType: 5126, count,
                                     type: 'SCALAR', min: [nt[0]], max: [nt[count - 1]] });
                     }
                 }
                 if (tAcc < 0) tAcc = timeAccFn();
                 const aO = accs.length;
-                accs.push({ bufferView: addBV(new Float32Array(outArr)), componentType: 5126, count: count, type: type });
+                accs.push({ bufferView: addBV(new Float32Array(outArr)), componentType: 5126, count, type });
                 tr.samplers.push({ input: tAcc, interpolation: 'LINEAR', output: aO });
-                tr.channels.push({ sampler: tr.samplers.length - 1, target: { node: nodeIdx, path: path } });
+                tr.channels.push({ sampler: tr.samplers.length - 1, target: { node: nodeIdx, path } });
             }
 
             // One time accessor + sampler/channel lists per clip.
@@ -2651,7 +2651,7 @@
                 const times = cs.frames.map((f) => Math.fround(f.time - tFirst));
                 // The time accessor is created on first use, so a clip without motion adds no unused data.
                 let tAcc = -1;
-                const trk = { name: cs.name, frames: cs.frames, times: times, samplers: [], channels: [] };
+                const trk = { name: cs.name, frames: cs.frames, times, samplers: [], channels: [] };
                 Object.defineProperty(trk, 'timeAcc', {
                     enumerable: true,
                     get: () => {
@@ -3230,8 +3230,8 @@
                 asset: { version: '2.0' },
                 scene: 0,
                 scenes: [{ nodes: rootNodes }],
-                nodes: nodes,
-                meshes: meshes,
+                nodes,
+                meshes,
                 accessors: accs,
                 bufferViews: bvs,
                 materials: mats,

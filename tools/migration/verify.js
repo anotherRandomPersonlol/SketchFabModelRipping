@@ -126,7 +126,10 @@ function firstDiff(a, b, path) {
 // ==== 2. scope resolution ====
 function resolution(P) {
     const declIds = [];
-    P.sm.scopes.forEach((s) => s.variables.forEach((v) => { if (v.defs.length) declIds.push(v.defs[0].name.start); }));
+    P.sm.scopes.forEach((s) => s.variables.forEach((v) => {
+        // parameters of the hand-rewritten functions differ on purpose and would shift the numbering
+        if (v.defs.length && !(v.defs[0].type === 'Parameter' && insideAllowed(v.defs[0].name))) declIds.push(v.defs[0].name.start);
+    }));
     declIds.sort((x, y) => x - y);
     const ord = new Map(declIds.map((p, i) => [p, i]));
     const refs = [];
