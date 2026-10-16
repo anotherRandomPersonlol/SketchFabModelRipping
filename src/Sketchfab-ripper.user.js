@@ -37,6 +37,7 @@
     var saveimagecache2 = {};
     var objects         = {};
     var button_dw       = false;
+    var _exporting      = false;   // true while downloadGLB runs (read by the recorders, which are defined first)
 
     var CONFIG = {
         MAX_RECORD_SECONDS: 12,
@@ -1977,8 +1978,6 @@
     // ====================================================================
     // GLB Export
     // ====================================================================
-    var _exporting = false;
-
     function downloadGLB() {
         if (_exporting) { warn('export already running, ignored'); return; }
         if (window.animationRecording || window.clipRecording) { warn('recording is still running: press STOP first (export would miss the animation)'); return; }
