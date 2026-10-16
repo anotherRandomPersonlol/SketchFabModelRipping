@@ -39,7 +39,10 @@ Do not attach exported files, textures or screenshots of models that you do not 
 
 ### Code rules
 
-- Use ES5 syntax only: `var` and `function`. Do not use arrow functions, `let`, `const`, template strings, classes or destructuring. The whole script uses this style.
+- Use `const` for a variable that does not change and `let` for one that changes. Do not use `var`.
+- Use arrow functions for callbacks. Keep named helpers as `function` declarations: they are hoisted, and the script calls some of them above the place where they are defined.
+- Use template literals for messages: `` `clip ${name}: ${n} frames` ``.
+- Keep the script one plain file. Do not use modules, classes or a build step: Tampermonkey and Greasy Fork install the file as it is.
 - Write one `log()`, `warn()` or `err()` line for each important action, with the `[Ripper]` prefix that these functions add. A bug report is only as good as the log.
 - Put new parts of the script between `// ====` section lines, as the other parts are.
 - Run `node --check src/Sketchfab-ripper.user.js` before you commit.

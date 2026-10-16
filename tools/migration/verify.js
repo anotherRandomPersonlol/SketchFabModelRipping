@@ -224,6 +224,56 @@ B.sm.scopes.forEach((s) => s.references.forEach((r) => {
         hazards.push({ hard: true, msg: 'new on arrow "' + r.identifier.name + '" at ' + where(r.identifier) });
 }));
 
+// ==== 4. early calls (TDZ at run time) ====
+// A statement of the main body calls a function (directly, or through the functions that it calls) that reads
+// a let/const of the main body that is declared further down. The text order looks fine, but the call runs
+// before the declaration: ReferenceError. Conservative: calls inside callbacks count as if they run at once.
+(function earlyCalls() {
+    const iife = B.ast.body.find((st) => st.type === 'ExpressionStatement' && st.expression.type === 'CallExpression' &&
+        /Function/.test(st.expression.callee.type));
+    const body = iife ? iife.expression.callee.body.body : B.ast.body;
+    const resolved = new Map();
+    B.sm.scopes.forEach((s) => s.references.forEach((r) => resolved.set(r.identifier, r.resolved)));
+    const topDecl = new Map();   // variable -> index of the main-body statement that declares it (let/const only)
+    body.forEach((st, k) => {
+        if (st.type === 'VariableDeclaration' && st.kind !== 'var') st.declarations.forEach((d) => {
+            B.sm.getDeclaredVariables(d).forEach((v) => topDecl.set(v, k));
+        });
+    });
+    const fnOf = new Map();      // variable of a main-body function declaration -> its node
+    body.forEach((st) => { if (st.type === 'FunctionDeclaration') B.sm.getDeclaredVariables(st).forEach((v) => fnOf.set(v, st)); });
+    function scanNode(n, refs, calls) {
+        if (n.type === 'Identifier') { const v = resolved.get(n); if (v) { refs.add(v); if (fnOf.has(v)) calls.add(v); } }
+        for (const k of Object.keys(n)) {
+            if (k === 'parent' || k === 'loc' || k === 'range') continue;
+            const c = n[k];
+            if (Array.isArray(c)) c.forEach((x) => { if (x && typeof x.type === 'string') scanNode(x, refs, calls); });
+            else if (c && typeof c.type === 'string') scanNode(c, refs, calls);
+        }
+    }
+    const reach = new Map();     // function variable -> every variable that its body (and what it uses) reads
+    function reads(fv, seen) {
+        if (reach.has(fv)) return reach.get(fv);
+        if (seen.has(fv)) return new Set();
+        seen.add(fv);
+        const refs = new Set(), calls = new Set();
+        scanNode(fnOf.get(fv).body, refs, calls);
+        calls.forEach((c) => reads(c, seen).forEach((v) => refs.add(v)));
+        reach.set(fv, refs);
+        return refs;
+    }
+    body.forEach((st, j) => {
+        if (st.type === 'FunctionDeclaration') return;
+        const refs = new Set(), calls = new Set();
+        scanNode(st, refs, calls);
+        calls.forEach((c) => reads(c, new Set()).forEach((v) => {
+            const k = topDecl.get(v);
+            if (k !== undefined && k > j) hazards.push({ hard: false, msg: 'early call: statement at ' + where(st) + ' uses "' + c.name +
+                '", which reads "' + v.name + '" declared later at ' + where(body[k]) });
+        }));
+    });
+})();
+
 // ==== report ====
 const hard = hazards.filter((h) => h.hard), soft = hazards.filter((h) => !h.hard);
 console.log('structure + scope differences: ' + problems.length);

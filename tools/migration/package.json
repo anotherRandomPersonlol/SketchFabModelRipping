@@ -1,0 +1,9 @@
+{
+  "name": "sketchfab-ripper-migration-tools",
+  "private": true,
+  "description": "One-time tools for the ES5 to modern syntax change of the userscript",
+  "dependencies": {
+    "acorn": "8.19.0",
+    "eslint-scope": "9.1.2"
+  }
+}
