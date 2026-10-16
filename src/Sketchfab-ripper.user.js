@@ -509,7 +509,7 @@
                 if (!saveimagecache2[url_image]) {
                     const base = pickTextureName(imagemodel, url_image);
                     let texName = base, n = 1;
-                    while (_usedTextureNames[texName]) texName = base + '_' + (n++);
+                    while (_usedTextureNames[texName]) texName = `${base}_${n++}`;
                     _usedTextureNames[texName] = true;
                     saveimagecache2[url_image] = { name: texName };
                 }
@@ -792,12 +792,12 @@
         window.clipCancel = false;
         window.recordedFrames = [];
         if (window.clips && window.clips.length) {
-            log('single-clip record: discarded ' + window.clips.length + ' stored multi-clip recording(s)');
+            log(`single-clip record: discarded ${window.clips.length} stored multi-clip recording(s)`);
         }
         window.clips = [];
         setRecLabel('STOP');
         const base = inst.start || 0;
-        log('auto record: one full loop of the active clip (' + def.duration.toFixed(2) + 's)');
+        log(`auto record: one full loop of the active clip (${def.duration.toFixed(2)}s)`);
         try { mgr.setSeekTime(base); } catch (e) {
             err('auto record seek', e.message);
             window.animationRecording = false; window.autoRecordActive = false; setRecLabel('RECORD');
@@ -830,12 +830,12 @@
         // A fresh single-clip recording must win at export time. Stale multi-clip
         // data from an earlier RECORD ALL CLIPS run would otherwise override it.
         if (window.clips && window.clips.length) {
-            log('single-clip record: discarded ' + window.clips.length + ' stored multi-clip recording(s)');
+            log(`single-clip record: discarded ${window.clips.length} stored multi-clip recording(s)`);
         }
         window.clips = [];
         window.recordingStartTime = performance.now() / 1000;
         setRecLabel('STOP');
-        log('recording started (max ' + CONFIG.MAX_RECORD_SECONDS + 's)');
+        log(`recording started (max ${CONFIG.MAX_RECORD_SECONDS}s)`);
         function tick() {
             if (!window.animationRecording) return;
             const t = performance.now() / 1000 - window.recordingStartTime;
@@ -938,7 +938,7 @@
         const mgr = findAnimationManager();
         const count = getClipItems().length;
         if (!mgr || !count) {
-            warn('clip discovery: manager=' + !!mgr + ' listItems=' + count);
+            warn(`clip discovery: manager=${!!mgr} listItems=${count}`);
             cb([], 0);
             return;
         }
@@ -951,7 +951,7 @@
             selectClipItem(k, (ok) => {
                 if (!ok) { next(); return; }
                 const li = getClipItems()[k];
-                if (!li) { warn('clip list item ' + k + ' vanished during discovery, skipped'); next(); return; }
+                if (!li) { warn(`clip list item ${k} vanished during discovery, skipped`); next(); return; }
                 const name = (li.textContent || '').trim().replace(/\s+/g, ' ');
                 const act = activeClipUids(mgr);
                 if (act.length === 1) {
@@ -960,9 +960,9 @@
                                 duration: inst ? inst.duration : 0 });
                 } else if (act.length === 0) {
                     noClipIdx = k;
-                    log('list item ' + k + ' "' + name + '" has no clip (treated as the Static Pose item)');
+                    log(`list item ${k} "${name}" has no clip (treated as the Static Pose item)`);
                 } else {
-                    warn('list item ' + k + ' "' + name + '" activated ' + act.length + ' clips, skipped');
+                    warn(`list item ${k} "${name}" activated ${act.length} clips, skipped`);
                 }
                 next();
             });
@@ -976,7 +976,7 @@
             }
             selectClipItem(origIdx, () => {
                 window.clipDefs = defs;
-                log('discovered ' + defs.length + ' clips');
+                log(`discovered ${defs.length} clips`);
                 for (let q = 0; q < defs.length; q++) {
                     log('clip ' + defs[q].index + ': ' + defs[q].name +
                         ' (' + defs[q].duration.toFixed(2) + 's)');
@@ -1003,7 +1003,7 @@
                     if (sim0 === null) sim0 = s;
                     return s - sim0;
                 }
-                warn('sim clock returned ' + s + ', falling back to wall clock');
+                warn(`sim clock returned ${s}, falling back to wall clock`);
                 useSim = false;
                 wall0 = performance.now() / 1000 - (lastT > 0 ? lastT : 0);
             }
@@ -1019,12 +1019,12 @@
             if (!why && frames.length && frames[frames.length - 1].time < def.duration - 1e-4) {
                 frames.push({ time: def.duration, meshes: frames[0].meshes });
             }
-            if (why) warn('clip ' + def.name + ': ' + why + ', frames=' + frames.length);
+            if (why) warn(`clip ${def.name}: ${why}, frames=${frames.length}`);
             cb(frames);
         }
         function tick() {
             try { tickBody(); } catch (e) {
-                err('clip ' + def.name + ' tick', e.message);
+                err(`clip ${def.name} tick`, e.message);
                 finish('error, truncated');
             }
         }
@@ -1038,7 +1038,7 @@
                 // clock restarts. If we already have (almost) the whole clip, that is
                 // the normal end, not a problem.
                 if (lastT >= def.duration - 0.1 || lastSeen >= def.duration - 0.1) {
-                    log('clip ' + def.name + ': viewer moved to the next clip at the end, frames=' + frames.length);
+                    log(`clip ${def.name}: viewer moved to the next clip at the end, frames=${frames.length}`);
                     finish(null);
                     return;
                 }
@@ -1053,13 +1053,13 @@
             }
             // Safety net: sim clock stuck, so end by wall time instead of looping forever.
             if (performance.now() / 1000 - wall0 > def.duration + 3) {
-                finish('clock stalled at t=' + t.toFixed(3));
+                finish(`clock stalled at t=${t.toFixed(3)}`);
                 return;
             }
             lastSeen = t;   // last clock value seen (kept or skipped by RECORD_FPS), for end-of-clip detection
             requestAnimationFrame(tick);
         }
-        log('clip clock: ' + (useSim ? 'manager simulation time' : 'wall clock') + ' (' + def.name + ')');
+        log(`clip clock: ${useSim ? 'manager simulation time' : 'wall clock'} (${def.name})`);
         requestAnimationFrame(tick);
     }
 
@@ -1067,7 +1067,7 @@
         selectClipItem(def.index, (ok) => {
             const act = activeClipUids(mgr);
             if (!ok || act.length !== 1 || act[0] !== def.uid) {
-                warn('clip switch failed: ' + def.name + ' active=' + act.join(','));
+                warn(`clip switch failed: ${def.name} active=${act.join(',')}`);
                 cb(null);
                 return;
             }
@@ -1079,9 +1079,9 @@
             try {
                 if (!mgr._pause) mgr.togglePause();
                 mgr.setSeekTime(base);
-            } catch (e) { err('clip seek ' + def.name, e.message); cb(null); return; }
+            } catch (e) { err(`clip seek ${def.name}`, e.message); cb(null); return; }
             waitFrames(CONFIG.CLIP_SETTLE_FRAMES, () => {
-                try { recordClipRealtime(mgr, def, base, cb); } catch (e) { err('clip record ' + def.name, e.message); cb(null); }
+                try { recordClipRealtime(mgr, def, base, cb); } catch (e) { err(`clip record ${def.name}`, e.message); cb(null); }
             });
         });
     }
@@ -1099,7 +1099,7 @@
         selectClipItem(window.clipStaticIdx, (ok) => {
             const act = activeClipUids(mgr);
             if (!ok || act.length) {
-                warn('static pose: selecting the item failed or left clips active (' + act.length + ')');
+                warn(`static pose: selecting the item failed or left clips active (${act.length})`);
                 cb();
                 return;
             }
@@ -1116,9 +1116,9 @@
                             if (Math.abs(pa[i] - pb[i]) > 1e-5) { moved++; break; }
                         }
                     }
-                    if (moved) warn('static pose: ' + moved + ' mesh palette(s) still changing; using the later snapshot');
+                    if (moved) warn(`static pose: ${moved} mesh palette(s) still changing; using the later snapshot`);
                     window.staticPoseSnapshot = snapB;
-                    log('static pose captured, meshes=' + snapB.meshes.length);
+                    log(`static pose captured, meshes=${snapB.meshes.length}`);
                     cb();
                 });
             });
@@ -1136,7 +1136,7 @@
             window.clipCancel = false;
             window.clipProgress = '';
             setRecAllLabel('RECORD ALL CLIPS');
-            log('record-all finished, clips recorded: ' + window.clips.length);
+            log(`record-all finished, clips recorded: ${window.clips.length}`);
         }
         try {
             selectClipItem(origIdx, () => {
@@ -1171,33 +1171,33 @@
         discoverAnimationClips((defs, origIdx) => {
             safeOrigIdx = origIdx;
             if (defs.length < 2) {
-                warn('only ' + defs.length + ' usable clip(s); single-clip path stays in use');
+                warn(`only ${defs.length} usable clip(s); single-clip path stays in use`);
                 endRecordAll(mgr, wasPaused, origIdx);
                 return;
             }
             let i = 0;
             function nextClip() {
                 if (i >= defs.length || window.clipCancel) {
-                    if (window.clipCancel) warn('record-all cancelled, keeping ' + window.clips.length + ' recorded clip(s)');
+                    if (window.clipCancel) warn(`record-all cancelled, keeping ${window.clips.length} recorded clip(s)`);
                     endRecordAll(mgr, wasPaused, origIdx);
                     return;
                 }
                 const d = defs[i++];
-                window.clipProgress = i + '/' + defs.length;
+                window.clipProgress = `${i}/${defs.length}`;
                 try {
                 recordClip(mgr, d, (frames) => {
                     if (window.clipCancel) {
-                        warn('clip discarded (cancelled): ' + d.name);
+                        warn(`clip discarded (cancelled): ${d.name}`);
                     } else if (frames && frames.length > 1) {
                         window.clips.push({ name: d.name, uid: d.uid, frames: frames });
-                        log('clip recorded: ' + d.name + ' frames=' + frames.length);
+                        log(`clip recorded: ${d.name} frames=${frames.length}`);
                     } else {
-                        warn('clip skipped: ' + d.name);
+                        warn(`clip skipped: ${d.name}`);
                     }
                     nextClip();
                 });
                 } catch (e) {
-                    err('record-all clip ' + d.name, e.message);
+                    err(`record-all clip ${d.name}`, e.message);
                     endRecordAll(mgr, wasPaused, origIdx);
                 }
             }
@@ -1345,7 +1345,7 @@
         selF.addEventListener('change', () => {
             CONFIG.RECORD_FPS = parseInt(selF.value, 10) || 0;
             saveConfig();
-            log('record fps set to ' + (CONFIG.RECORD_FPS || 'every frame'));
+            log(`record fps set to ${CONFIG.RECORD_FPS || 'every frame'}`);
         });
         rowF.appendChild(selF);
         configDiv.appendChild(rowF);
@@ -1378,7 +1378,7 @@
         check5.addEventListener('change', () => {
             CONFIG.DOUBLE_SIDED = check5.checked;
             saveConfig();
-            log('double sided set to ' + check5.checked);
+            log(`double sided set to ${check5.checked}`);
         });
         row5.appendChild(check5);
         configDiv.appendChild(row5);
@@ -1395,7 +1395,7 @@
         check5b.addEventListener('change', () => {
             CONFIG.DOUBLE_SIDED_AUTO = check5b.checked;
             saveConfig();
-            log('auto single sided set to ' + check5b.checked);
+            log(`auto single sided set to ${check5b.checked}`);
         });
         row5b.appendChild(check5b);
         configDiv.appendChild(row5b);
@@ -1412,7 +1412,7 @@
         check5c.addEventListener('change', () => {
             CONFIG.DROP_STRIP_SLIVERS = check5c.checked;
             saveConfig();
-            log('drop strip slivers set to ' + check5c.checked);
+            log(`drop strip slivers set to ${check5c.checked}`);
         });
         row5c.appendChild(check5c);
         configDiv.appendChild(row5c);
@@ -1429,7 +1429,7 @@
         check5d.addEventListener('change', () => {
             CONFIG.REDUCE_KEYS = check5d.checked;
             saveConfig();
-            log('reduce keyframes set to ' + check5d.checked);
+            log(`reduce keyframes set to ${check5d.checked}`);
         });
         row5d.appendChild(check5d);
         configDiv.appendChild(row5d);
@@ -1446,7 +1446,7 @@
         check5e.addEventListener('change', () => {
             CONFIG.KEEP_STILL_CLIPS = check5e.checked;
             saveConfig();
-            log('keep still clips set to ' + check5e.checked);
+            log(`keep still clips set to ${check5e.checked}`);
         });
         row5e.appendChild(check5e);
         configDiv.appendChild(row5e);
@@ -1463,7 +1463,7 @@
         check6.addEventListener('change', () => {
             CONFIG.VERTEX_COLOR_SRGB = check6.checked;
             saveConfig();
-            log('vertex color sRGB->linear set to ' + check6.checked);
+            log(`vertex color sRGB->linear set to ${check6.checked}`);
         });
         row6.appendChild(check6);
         configDiv.appendChild(row6);
@@ -1480,7 +1480,7 @@
         check7.addEventListener('change', () => {
             CONFIG.FLAT_MR_FROM_VIEWER = check7.checked;
             saveConfig();
-            log('flat metal/rough from viewer set to ' + check7.checked);
+            log(`flat metal/rough from viewer set to ${check7.checked}`);
         });
         row7.appendChild(check7);
         configDiv.appendChild(row7);
@@ -1503,7 +1503,7 @@
             input8.value = v;
             CONFIG.EXPORT_SCALE = v;
             saveConfig();
-            log('export scale set to ' + v);
+            log(`export scale set to ${v}`);
         });
         row8.appendChild(input8);
         configDiv.appendChild(row8);
@@ -1548,7 +1548,7 @@
         sel4.addEventListener('change', () => {
             CONFIG.REST_POSE_SOURCE = sel4.value;
             saveConfig();
-            log('rest pose source set to ' + sel4.value);
+            log(`rest pose source set to ${sel4.value}`);
         });
         row4.appendChild(sel4);
         configDiv.appendChild(row4);
@@ -1593,10 +1593,10 @@
             const f = window.recordedFrames.length;
             const busy = window.animationRecording || window.clipRecording;
             s.textContent = (window.animationRecording ? '● REC'
-                          : (window.clipRecording ? '● CLIPS ' + window.clipProgress : 'idle'))
+                          : (window.clipRecording ? `● CLIPS ${window.clipProgress}` : 'idle'))
                           + ' · meshes:' + m + ' frames:' + f
                           + ' · clips:' + getClipCount()
-                          + (window.clips.length ? ' (rec ' + window.clips.length + ')' : '');
+                          + (window.clips.length ? ` (rec ${window.clips.length})` : '');
             s.style.color = busy ? '#f66' : '#aaa';
         }, 500);
 
@@ -1607,8 +1607,8 @@
             });
             document.addEventListener('mousemove', (e) => {
                 if (!drag) return;
-                el.style.left = (e.clientX - ox) + 'px';
-                el.style.top  = (e.clientY - oy) + 'px';
+                el.style.left = `${e.clientX - ox}px`;
+                el.style.top  = `${e.clientY - oy}px`;
                 el.style.right = 'auto';
             });
             document.addEventListener('mouseup', () => { drag = false; });
@@ -1750,7 +1750,7 @@
             const ss = obj.stateset;
             const meshName = obj._name
                          || (ss && ss._name)
-                         || ('mesh_' + i);
+                         || (`mesh_${i}`);
             const cm = getChannelTextureMap(obj);
             if (!cm.MetalnessPBR && !cm.RoughnessPBR && !cm.GlossinessPBR) return;
             const san = sanitizeTextureName(meshName);
@@ -1759,16 +1759,16 @@
             jobs.push(
                 _mergeOneMR(cm).then((result) => {
                     if (!result || !result.blob) return;
-                    const fname = san + '_MR' + result.ext;
+                    const fname = `${san}_MR${result.ext}`;
                     objects[fname] = result.blob;
-                    saveimagecache2['__merged_mr__:' + san] = {
-                        name: san + '_MR',
+                    saveimagecache2[`__merged_mr__:${san}`] = {
+                        name: `${san}_MR`,
                         fileExt: result.ext,
                         dataURL: 'merged',
                         hasM: result.hasM,
                         hasR: result.hasR
                     };
-                    log('merged MR:', meshName, '→', fname, result.blob.size + 'B');
+                    log('merged MR:', meshName, '→', fname, `${result.blob.size}B`);
                 }).catch((e) => {
                     warn('MR merge failed for', meshName, e.message);
                 })
@@ -1823,7 +1823,7 @@
         const colorBlob = noColor ? null : _blobForUrl(cm.AlbedoPBR.url);
         const maskBlob = _blobForUrl(opacitySource(cm).url);
         if ((!noColor && !colorBlob) || !maskBlob) {
-            warn('opacity merge: missing source (color=' + !!colorBlob + ' mask=' + !!maskBlob + ')');
+            warn(`opacity merge: missing source (color=${!!colorBlob} mask=${!!maskBlob})`);
             return Promise.resolve(null);
         }
         return Promise.all([noColor ? null : createImageBitmap(colorBlob), createImageBitmap(maskBlob)]).then((bmps) => {
@@ -1873,7 +1873,7 @@
         const seen = {};
         window.allmodel.forEach((obj, i) => {
             const ss = obj.stateset;
-            const meshName = obj._name || (ss && ss._name) || ('mesh_' + i);
+            const meshName = obj._name || (ss && ss._name) || (`mesh_${i}`);
             const cm = getChannelTextureMap(obj);
             const opSrc = opacitySource(cm);
             if (!opSrc || !(opSrc.url || opSrc.name) || opSrc.atlas) return;
@@ -1891,24 +1891,24 @@
                 _opacityNoColor[san] = true;   // opacity image only: merge into a white RGB + alpha texture
             } else if (normalizeUrl(opSrc.url) === normalizeUrl(cm.AlbedoPBR.url)) {
                 _opacityOneFile[san] = true;
-                log('opacity merge: ' + meshName + ' uses one file for color and opacity, skipped');
+                log(`opacity merge: ${meshName} uses one file for color and opacity, skipped`);
                 return;
             }
             // Meshes sharing the same colour and mask images share one merged texture.
-            const okey = (_opacityNoColor[san] ? 'white' : normalizeUrl(cm.AlbedoPBR.url)) + '|' + normalizeUrl(opSrc.url);
-            if (_alphaFirst[okey]) { _alphaShare[san] = _alphaFirst[okey]; log('opacity merge: ' + meshName + ' shares the merged texture of ' + _alphaFirst[okey]); return; }
+            const okey = `${_opacityNoColor[san] ? 'white' : normalizeUrl(cm.AlbedoPBR.url)}|${normalizeUrl(opSrc.url)}`;
+            if (_alphaFirst[okey]) { _alphaShare[san] = _alphaFirst[okey]; log(`opacity merge: ${meshName} shares the merged texture of ${_alphaFirst[okey]}`); return; }
             _alphaFirst[okey] = san;
             jobs.push(
                 _mergeOneOpacity(cm).then((result) => {
                     if (!result || !result.blob) return;
-                    const fname = san + '_Alpha' + result.ext;
+                    const fname = `${san}_Alpha${result.ext}`;
                     objects[fname] = result.blob;
-                    saveimagecache2['__merged_op__:' + san] = {
-                        name: san + '_Alpha',
+                    saveimagecache2[`__merged_op__:${san}`] = {
+                        name: `${san}_Alpha`,
                         fileExt: result.ext,
                         dataURL: 'merged'
                     };
-                    log('merged opacity:', meshName, '→', fname, result.blob.size + 'B');
+                    log('merged opacity:', meshName, '→', fname, `${result.blob.size}B`);
                 }).catch((e) => {
                     warn('opacity merge failed for', meshName, e.message);
                 })
@@ -1954,18 +1954,18 @@
                     if (captured > lastCaptured) {
                         lastCaptured = captured;
                         lastProgressAt = now;
-                        log('textures captured: ' + captured + '/' + r.expected);
+                        log(`textures captured: ${captured}/${r.expected}`);
                     }
-                    if (r.missing === 0) { log('all ' + r.expected + ' textures captured'); resolve(); return; }
+                    if (r.missing === 0) { log(`all ${r.expected} textures captured`); resolve(); return; }
                     // Some textures are never drawn (tiny ones are skipped on purpose). Once
                     // some arrived and then nothing new came for 5 s, stop waiting.
                     if (captured > 0 && now - lastProgressAt > 5000) {
-                        warn('textures: ' + r.missing + '/' + r.expected + ' never appeared, exporting without them');
+                        warn(`textures: ${r.missing}/${r.expected} never appeared, exporting without them`);
                         resolve();
                         return;
                     }
                     if (now - start >= maxMs) {
-                        warn('textures: timed out with ' + r.missing + '/' + r.expected + ' missing, exporting without them');
+                        warn(`textures: timed out with ${r.missing}/${r.expected} missing, exporting without them`);
                         resolve();
                         return;
                     }
@@ -2001,7 +2001,7 @@
 
             allNodes.forEach((obj, idx) => {
                 nodeMap.set(obj, idx);
-                const name = obj._name || (obj.stateset && obj.stateset._name) || ('mesh_' + idx);
+                const name = obj._name || (obj.stateset && obj.stateset._name) || (`mesh_${idx}`);
                 const world = computeWorldMatrix(obj);
                 nodes.push({ name: name, matrix: world, mesh: undefined, children: [] });
             });
@@ -2034,14 +2034,14 @@
                 if (!obj._primitives) return;
                 const mdl = parseobj(obj);
                 if (!mdl.vertex || mdl.vertex.length === 0) return;
-                const nm = obj._name || (obj.stateset && obj.stateset._name) || ('mesh_' + mIdx);
+                const nm = obj._name || (obj.stateset && obj.stateset._name) || (`mesh_${mIdx}`);
                 const vc = mdl.vertex.length / 3;
 
                 const twinIdx = wireOverlayTwin(allNodes, mIdx);
                 if (twinIdx >= 0) {
                     const twinObj = allNodes[twinIdx];
                     log('mesh ' + nm + ': skipped, it is the wireframe overlay (lines only) of "' +
-                        (twinObj._name || (twinObj.stateset && twinObj.stateset._name) || ('mesh_' + twinIdx)) + '"');
+                        (twinObj._name || (twinObj.stateset && twinObj.stateset._name) || (`mesh_${twinIdx}`)) + '"');
                     skippedNodes[mIdx] = true;
                     return;
                 }
@@ -2137,7 +2137,7 @@
                     let triParts = [], skippedP = 0, modeLog = [];
                     mdl.primitives.forEach((pr) => {
                         let pm = (pr.mode === undefined || pr.mode === null) ? 4 : pr.mode, pi2 = pr.indices, tl = [], t2;
-                        modeLog.push(pm + 'x' + (pi2 ? pi2.length : 0));
+                        modeLog.push(`${pm}x${pi2 ? pi2.length : 0}`);
                         if (!pi2 || !pi2.length) return;
                         // Degenerate triangles (repeated index) are strip joins; drop them so
                         // Blender does not show long zero-area edges between distant vertices.
@@ -2192,7 +2192,7 @@
                                     shown++;
                                     const at = tpos[q], ctx = [];
                                     for (let ci = Math.max(0, at - 5); ci <= Math.min(pi2.length - 1, at + 3); ci++) ctx.push((ci === at ? '*' : '') + pi2[ci]);
-                                    log('long triangle:', nm, 'mode ' + pm, 'tri (' + a0 + ',' + b0 + ',' + c0 + ') longest edge ' + L.toFixed(3) +
+                                    log('long triangle:', nm, `mode ${pm}`, 'tri (' + a0 + ',' + b0 + ',' + c0 + ') longest edge ' + L.toFixed(3) +
                                         ' (typical ' + med.toFixed(4) + ', mesh size ' + size.toFixed(3) + ') at index ' + at + ' of ' + pi2.length + ', indices around: ' + ctx.join(' '));
                                 }
                             }
@@ -2201,11 +2201,11 @@
                             if (cand.length) {
                                 let qs = Math.max(size * 1e-6, 1e-9), wmap = {}, wid = new Int32Array(vc), nw = 0, vi;
                                 for (vi = 0; vi < vc; vi++) {
-                                    const wk = Math.round(vv[vi * 3] / qs) + ',' + Math.round(vv[vi * 3 + 1] / qs) + ',' + Math.round(vv[vi * 3 + 2] / qs);
+                                    const wk = `${Math.round(vv[vi * 3] / qs)},${Math.round(vv[vi * 3 + 1] / qs)},${Math.round(vv[vi * 3 + 2] / qs)}`;
                                     if (wmap[wk] === undefined) wmap[wk] = nw++;
                                     wid[vi] = wmap[wk];
                                 }
-                                const ek = (i, j) => { const a1 = wid[i], b1 = wid[j]; return a1 < b1 ? a1 + '_' + b1 : b1 + '_' + a1; };
+                                const ek = (i, j) => { const a1 = wid[i], b1 = wid[j]; return a1 < b1 ? `${a1}_${b1}` : `${b1}_${a1}`; };
                                 let ecount = {}, ci2, e3;
                                 for (ci2 = 0; ci2 < cand.length; ci2++) {
                                     const cq = cand[ci2], cv3 = [tl[cq * 3], tl[cq * 3 + 1], tl[cq * 3 + 2]];
@@ -2233,14 +2233,14 @@
                                 const kept = [];
                                 for (q = 0; q < nT; q++) if (!drop[q]) kept.push(tl[q * 3], tl[q * 3 + 1], tl[q * 3 + 2]);
                                 tl = kept;
-                                log('mesh ' + nm + ': dropped ' + nDrop + ' bridging sliver triangle(s) from the strip (stripes)');
+                                log(`mesh ${nm}: dropped ${nDrop} bridging sliver triangle(s) from the strip (stripes)`);
                             }
-                            if (hits > nDrop) log('mesh ' + nm + ': ' + (hits - nDrop) + ' long thin triangle(s) kept (real geometry, edges shared)');
+                            if (hits > nDrop) log(`mesh ${nm}: ${hits - nDrop} long thin triangle(s) kept (real geometry, edges shared)`);
                         })();
-                        if (oobN) log('indices:', nm, 'mode ' + pm, pi2.length + ' indices ->', (tl.length / 3) + ' triangles, restart/out-of-range ' + oobN + ', degenerate ' + degN + ', vertices ' + vc);
+                        if (oobN) log('indices:', nm, `mode ${pm}`, `${pi2.length} indices ->`, `${tl.length / 3} triangles, restart/out-of-range ${oobN}, degenerate ${degN}, vertices ${vc}`);
                         triParts.push(tl);
                     });
-                    if (mdl.primitives.length > 1) log('primitives:', nm, mdl.primitives.length, '(mode x indices: ' + modeLog.join(', ') + ')');
+                    if (mdl.primitives.length > 1) log('primitives:', nm, mdl.primitives.length, `(mode x indices: ${modeLog.join(', ')})`);
                     if (triParts.length) {
                         mergedInd = [];
                         triParts.forEach((tl) => { for (let tq = 0; tq < tl.length; tq++) mergedInd.push(tl[tq]); });
@@ -2289,7 +2289,7 @@
                     accs.push({ bufferView: addBV(new Float32Array(mdl.weights), 34962),
                                 componentType: 5126, count: vc, type: 'VEC4' });
                     meshHasSkinning[mIdx] = mj + 1;
-                    log('skinned mesh:', nm, 'jointsMax=' + mj);
+                    log('skinned mesh:', nm, `jointsMax=${mj}`);
                 }
 
                 // Morph targets. The viewer blends  (1 - sum w) * base + sum w_k * target_k  with
@@ -2300,7 +2300,7 @@
                     return (b && b._elements) || (a && a._elements) || null;
                 }
                 for (let mk = 0, mN = morphTargetCount(obj); mk < mN; mk++) {
-                    const tv = morphEls(mAttr['Vertex_' + mk]);
+                    const tv = morphEls(mAttr[`Vertex_${mk}`]);
                     if (!tv || tv.length !== mdl.vertex.length) {
                         warn('morph target', mk, 'of', nm, 'skipped (vertex data missing or wrong size)');
                         continue;
@@ -2316,7 +2316,7 @@
                     const tgt = { POSITION: accs.length };
                     accs.push({ bufferView: addBV(dv, 34962), componentType: 5126, count: vc,
                                 type: 'VEC3', min: dMin, max: dMax });
-                    let tn = morphEls(mAttr['Normal_' + mk]);
+                    let tn = morphEls(mAttr[`Normal_${mk}`]);
                     if (tn && mdl.normal.length && tn.length === mdl.normal.length) {
                         tn = unitNormals(tn);
                         const dn = new Float32Array(tn.length);
@@ -2364,13 +2364,13 @@
                 const t = saveimagecache2[key];
                 if (!t || !t.dataURL) continue;
                 const ext = t.fileExt || '.png';
-                if (!objects[(t.name || 'texture') + ext]) { warn('texture file missing, not referenced: ' + (t.name || 'texture') + ext); continue; }
+                if (!objects[(t.name || 'texture') + ext]) { warn(`texture file missing, not referenced: ${t.name || 'texture'}${ext}`); continue; }
                 // ASCII-safe file name: no encoding issues in URIs or zip loaders.
                 const safeBase = String(t.name || 'texture').replace(/[^A-Za-z0-9._-]+/g, '_') || 'texture';
                 let safeName = safeBase + ext, sc = 1;
-                while (usedSafe[safeName.toLowerCase()]) safeName = safeBase + '_' + (sc++) + ext;   // case-insensitive file systems
+                while (usedSafe[safeName.toLowerCase()]) safeName = `${safeBase}_${sc++}${ext}`;   // case-insensitive file systems
                 usedSafe[safeName.toLowerCase()] = true;
-                const path = 'textures/' + safeName;
+                const path = `textures/${safeName}`;
                 const ii = images.length;
                 imageKeys.push({ key: (t.name || 'texture') + ext, safe: safeName });
                 images.push({ uri: path });
@@ -2407,8 +2407,8 @@
                         if (!inf || inf.atlas || !(inf.url || inf.name)) { atl.push(mk2); continue; }
                         if (findTexIdx(inf) === undefined) lost.push(mk2);
                     }
-                    if (lost.length) warn('material ' + m.name + ': channels with a texture in the viewer but not in the export: ' + lost.join(', '));
-                    if (atl.length) log('material ' + m.name + ': colour atlas / no image for ' + atl.join(', ') + ', using flat material values');
+                    if (lost.length) warn(`material ${m.name}: channels with a texture in the viewer but not in the export: ${lost.join(', ')}`);
+                    if (atl.length) log(`material ${m.name}: colour atlas / no image for ${atl.join(', ')}, using flat material values`);
                 })();
             });
             let anyRealTex = false;
@@ -2460,7 +2460,7 @@
 
                     // Merged MR (see mergeMRTextures): registered in the
                     // pool under name "<sanitized mesh name>_MR".
-                    const mrName = sanitizeTextureName(m.name) + '_MR';
+                    const mrName = `${sanitizeTextureName(m.name)}_MR`;
                     const mrIdx = textureNameToIndex[mrName];
                     if (mrIdx !== undefined) {
                         m.pbrMetallicRoughness.metallicRoughnessTexture = { index: mrIdx };
@@ -2469,7 +2469,7 @@
 
                     // Merged opacity (see mergeOpacityTextures): the RGBA texture
                     // replaces the plain base color and the material blends.
-                    const alphaIdx = textureNameToIndex[(_alphaShare[sanitizeTextureName(m.name)] || sanitizeTextureName(m.name)) + '_Alpha'];
+                    const alphaIdx = textureNameToIndex[`${_alphaShare[sanitizeTextureName(m.name)] || sanitizeTextureName(m.name)}_Alpha`];
                     if (alphaIdx !== undefined) {
                         m.pbrMetallicRoughness.baseColorTexture = { index: alphaIdx };
                         if (_opacityKind[sanitizeTextureName(m.name)] === 'alphamask') {
@@ -2478,7 +2478,7 @@
                             m.alphaMode = 'BLEND';
                         }
                         assigned = true;
-                        log('material ' + m.name + ': alphaMode ' + m.alphaMode + ' with merged ' + (_opacityKind[sanitizeTextureName(m.name)] || 'opacity') + ' texture');
+                        log(`material ${m.name}: alphaMode ${m.alphaMode} with merged ${_opacityKind[sanitizeTextureName(m.name)] || 'opacity'} texture`);
                     }
 
                     if (!assigned) {
@@ -2508,7 +2508,7 @@
                 const chKeys = [];
                 for (let chk in chan) if (chan.hasOwnProperty(chk) && (chan[chk].url || chan[chk].name)) chKeys.push(chk);
                 const mapKeys = [];
-                if (cmap) for (let mpk in cmap) if (cmap.hasOwnProperty(mpk) && cmap[mpk] >= 0) mapKeys.push(mpk + '=' + cmap[mpk]);
+                if (cmap) for (let mpk in cmap) if (cmap.hasOwnProperty(mpk) && cmap[mpk] >= 0) mapKeys.push(`${mpk}=${cmap[mpk]}`);
                 log('material ' + m.name + ': texture channels [' + chKeys.join(',') + '] mapping [' + mapKeys.join(',') + ']' +
                     (pbr.baseColorTexture ? ' baseColorTexture set' : ' no baseColorTexture'));
                 const alb = flat.AlbedoPBR;
@@ -2522,7 +2522,7 @@
                 }
                 const mt = flat.MetalnessPBR, rg = flat.RoughnessPBR;
                 // Merged MR image: a missing map is stored as 255, so the factor carries the flat value.
-                const mrE = saveimagecache2['__merged_mr__:' + sanitizeTextureName(m.name)], mrTex = !!pbr.metallicRoughnessTexture;
+                const mrE = saveimagecache2[`__merged_mr__:${sanitizeTextureName(m.name)}`], mrTex = !!pbr.metallicRoughnessTexture;
                 const mFlat = !texd('MetalnessPBR') && !(mrTex && mrE && mrE.hasM);
                 const rFlat = !texd('RoughnessPBR') && !(mrTex && mrE && mrE.hasR);
                 if (mrTex && !(mrE && mrE.hasM)) pbr.metallicFactor = 0;   // non-metal unless a flat value follows
@@ -2537,7 +2537,7 @@
                     const isBlend = !!flat.Opacity && /blend/i.test(String(op.type || ''));
                     m.alphaMode = isBlend ? 'BLEND' : 'MASK';
                     if (!isBlend) m.alphaCutoff = 0.5;
-                    did.push('opacity ' + m.alphaMode + ' (' + op.type + ')');
+                    did.push(`opacity ${m.alphaMode} (${op.type})`);
                 }
                 // Opacity given as a plain value (no mask image): use it as base colour alpha.
                 const opf = flat.Opacity;
@@ -2545,7 +2545,7 @@
                     if (!pbr.baseColorFactor) pbr.baseColorFactor = [1, 1, 1, 1];
                     pbr.baseColorFactor[3] = Math.max(0, Math.min(1, opf.factor));
                     m.alphaMode = 'BLEND';
-                    did.push('opacity ' + pbr.baseColorFactor[3].toFixed(2) + ' (' + opf.type + ')');
+                    did.push(`opacity ${pbr.baseColorFactor[3].toFixed(2)} (${opf.type})`);
                 }
                 if (mt && mt.enable === false && mFlat) {
                     pbr.metallicFactor = 0; did.push('metalness off');
@@ -2556,7 +2556,7 @@
                     const ev = [Math.min(1, em.color[0] * ef), Math.min(1, em.color[1] * ef), Math.min(1, em.color[2] * ef)];
                     if (ev[0] > 0 || ev[1] > 0 || ev[2] > 0) { m.emissiveFactor = ev; did.push('emission'); }
                 }
-                if (did.length) log('material ' + m.name + ': flat values from material model (' + did.join(', ') + ')');
+                if (did.length) log(`material ${m.name}: flat values from material model (${did.join(', ')})`);
             });
 
             // Sketchfab can render a model two-sided (Inspector: Single Sided OFF), which glTF
@@ -2570,7 +2570,7 @@
                     m.doubleSided = true;
                 });
                 log('materials marked doubleSided: ' + (mats.length - singleNames.length) + ' of ' + mats.length +
-                    (singleNames.length ? ' (single sided in the viewer: ' + singleNames.join(', ') + ')' : ''));
+                    (singleNames.length ? ` (single sided in the viewer: ${singleNames.join(', ')})` : ''));
             }
 
             // ---- animation clips (multi-clip aware) ----
@@ -2585,11 +2585,11 @@
                 });
             }
             if (clipSets.length > 1) {
-                log('export: multi-clip mode, clips=' + clipSets.length);
+                log(`export: multi-clip mode, clips=${clipSets.length}`);
             } else {
                 // single-clip path: same data source and behaviour as before
                 clipSets = (window.recordedFrames.length > 1)
-                    ? [{ name: animBase + '_anim', frames: window.recordedFrames }] : [];
+                    ? [{ name: `${animBase}_anim`, frames: window.recordedFrames }] : [];
             }
             const hasFrames = clipSets.length > 0;
             const liveSnap = hasFrames ? null : snapshotFrame().meshes;
@@ -2702,12 +2702,12 @@
                 const W_mesh = computeWorldMatrix(obj);
 
                 const skelRootIdx = nodes.length;
-                nodes.push({ name: 'skel_root_' + mIdx, matrix: W_mesh, children: [] });
+                nodes.push({ name: `skel_root_${mIdx}`, matrix: W_mesh, children: [] });
 
                 const jointNodeIndices = [];
                 for (let ji = 0; ji < jointCount; ji++) {
                     const jIdx = nodes.length;
-                    nodes.push({ name: 'joint_' + mIdx + '_' + ji, children: [] });
+                    nodes.push({ name: `joint_${mIdx}_${ji}`, children: [] });
                     nodes[skelRootIdx].children.push(jIdx);
                     jointNodeIndices.push(jIdx);
                 }
@@ -2740,7 +2740,7 @@
                 function makeHelper(jx) {
                     if (helperOf[jx] !== undefined) return helperOf[jx];
                     const jNode = jointNodeIndices[jx], hIdx = nodes.length;
-                    nodes.push({ name: 'joint_' + mIdx + '_' + jx + '_shear', children: [jNode] });
+                    nodes.push({ name: `joint_${mIdx}_${jx}_shear`, children: [jNode] });
                     const kids = nodes[skelRootIdx].children, kp = kids.indexOf(jNode);
                     if (kp >= 0) kids[kp] = hIdx; else kids.push(hIdx);
                     helperOf[jx] = hIdx;
@@ -2845,7 +2845,7 @@
                         stillClip[sc] = !scMoves;
                         if (!scMoves) nStill++;
                     }
-                    if (nStill && CONFIG.KEEP_STILL_CLIPS) log('skin ' + skinIdx + ': keeping ' + nStill + ' still clip(s) as pose clips');
+                    if (nStill && CONFIG.KEEP_STILL_CLIPS) log(`skin ${skinIdx}: keeping ${nStill} still clip(s) as pose clips`);
                     let holdPoses = 0;
                     for (let jn = 0; jn < jointCount; jn++) {
                         // Per-clip motion test: clips where this joint varies get its keys. A clip where it does
@@ -3022,9 +3022,9 @@
                     log('skin', skinIdx, 'for mesh', meshes[nodes[meshNodeIdx].mesh].name,
                         '→', jointCount, 'joints,', animatedCount, 'animated,',
                         tracks.length, 'clip(s)');
-                    if (holdPoses) log('skin ' + skinIdx + ': ' + holdPoses + ' joint pose(s) held in clips where the joint does not move but is away from the rest pose');
-                    if (holdJoints) log('skin ' + skinIdx + ': ' + holdJoints + ' joint channel set(s) with show/hide-by-scale switches kept instant (hold keys)');
-                    if (ibmFixed) log('skin ' + skinIdx + ': ' + ibmFixed + ' sheared joint(s) stored exactly via the inverse bind matrix (plain TRS joints)');
+                    if (holdPoses) log(`skin ${skinIdx}: ${holdPoses} joint pose(s) held in clips where the joint does not move but is away from the rest pose`);
+                    if (holdJoints) log(`skin ${skinIdx}: ${holdJoints} joint channel set(s) with show/hide-by-scale switches kept instant (hold keys)`);
+                    if (ibmFixed) log(`skin ${skinIdx}: ${ibmFixed} sheared joint(s) stored exactly via the inverse bind matrix (plain TRS joints)`);
                     let nHelp = 0; for (let hk in helperOf) if (helperOf.hasOwnProperty(hk)) nHelp++;
                     if (nHelp) log('skin ' + skinIdx + ': ' + nHelp + ' joint(s) with shear (max ' + (decErr.max * 100).toFixed(1) +
                         '% TRS error at joint ' + decErr.joint + ') stored exactly as helper node + joint (U*S*Vt)');
@@ -3122,7 +3122,7 @@
                             });
                             log('node animation: ' + nodes[nodeIdx].name + ' moves in ' +
                                 moves.filter((x) => x).length + ' clip(s)' +
-                                (nodeHolds ? ', pose held in ' + nodeHolds + ' clip(s)' : ''));
+                                (nodeHolds ? `, pose held in ${nodeHolds} clip(s)` : ''));
                         }
                     }
 
@@ -3164,7 +3164,7 @@
                             trk.samplers.push({ input: trk.timeAcc, interpolation: 'LINEAR', output: aWt });
                             trk.channels.push({ sampler: trk.samplers.length - 1,
                                                 target: { node: nodeIdx, path: 'weights' } });
-                            log('morph animation: ' + nodes[nodeIdx].name + ' (' + mi2.n + ' target(s))' + (varies ? '' : ', weights held'));
+                            log(`morph animation: ${nodes[nodeIdx].name} (${mi2.n} target(s))${varies ? '' : ', weights held'}`);
                         });
                     }
                 });
@@ -3182,7 +3182,7 @@
                         noMotion.push(tr.name);
                     }
                 });
-                if (noMotion.length) log('clips without motion, not exported (' + noMotion.length + '): ' + noMotion.join(', '));
+                if (noMotion.length) log(`clips without motion, not exported (${noMotion.length}): ${noMotion.join(', ')}`);
                 if (keyStats.before) log('keyframes reduced: ' + keyStats.before + ' -> ' + keyStats.after + ' (' +
                     Math.round(100 * keyStats.after / keyStats.before) + '% kept, translation tolerance ' + (1e-5 * (sceneSizeLocal || 1)).toPrecision(2) + ')');
                 if (animList.length) animations = animList;
@@ -3258,7 +3258,7 @@
                 remapTex(pb.baseColorTexture); remapTex(pb.metallicRoughnessTexture);
                 remapTex(m.normalTexture); remapTex(m.occlusionTexture); remapTex(m.emissiveTexture);
             });
-            if (keptTextures.length !== textures.length) log('textures: ' + keptTextures.length + ' used, ' + (textures.length - keptTextures.length) + ' unused dropped');
+            if (keptTextures.length !== textures.length) log(`textures: ${keptTextures.length} used, ${textures.length - keptTextures.length} unused dropped`);
             images = keptImages; textures = keptTextures;
             // glTF forbids empty arrays (validator: EMPTY_ENTITY), so texture-less models omit these.
             if (images.length) gltf.images = images;
@@ -3266,11 +3266,11 @@
             if (gltfSkins.length) gltf.skins = gltfSkins;
             if (animations) gltf.animations = animations;
 
-            log('built scene: nodes=' + nodes.length,
-                'meshes=' + meshes.length,
-                'skins=' + gltfSkins.length,
-                'animClips=' + (animations ? animations.length : 0),
-                'animFrames=' + (animations ? tracks[0].times.length : 0));
+            log(`built scene: nodes=${nodes.length}`,
+                `meshes=${meshes.length}`,
+                `skins=${gltfSkins.length}`,
+                `animClips=${animations ? animations.length : 0}`,
+                `animFrames=${animations ? tracks[0].times.length : 0}`);
 
             const jsonStr = JSON.stringify(gltf);
             const jsonBytes = new TextEncoder().encode(jsonStr);
@@ -3303,15 +3303,15 @@
             const modelName = (ml2 ? ml2.textContent.trim().replace(/\.+$/, '') : 'model').replace(/[\\\/:*?"<>|]/g, '_') || 'model';
 
             const zip = new JSZip();
-            zip.file(modelName + '.glb', new Blob([glb], { type: 'application/octet-stream' }));
+            zip.file(`${modelName}.glb`, new Blob([glb], { type: 'application/octet-stream' }));
             for (let tn in zipTex) {
                 if (zipTex.hasOwnProperty(tn) && objects[tn]) {
-                    zip.file('textures/' + zipTex[tn], objects[tn], { compression: 'STORE' });   // PNG/JPEG are already compressed
+                    zip.file(`textures/${zipTex[tn]}`, objects[tn], { compression: 'STORE' });   // PNG/JPEG are already compressed
                 }
             }
             zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }).then((content) => {
-                saveAs(content, modelName + '.zip');
-                log('export done:', modelName + '.zip');
+                saveAs(content, `${modelName}.zip`);
+                log('export done:', `${modelName}.zip`);
                 _exporting = false;
             }).catch((e) => {
                 _exporting = false;
