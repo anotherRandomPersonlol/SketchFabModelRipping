@@ -15,7 +15,7 @@
 // @supportURL   https://github.com/anotherRandomPersonlol/SketchFabModelRipping/issues
 // ==/UserScript==
 // Based off Risk's extraction
-(function () {
+(() => {
     'use strict';
     const window = unsafeWindow;
 
@@ -201,7 +201,7 @@
         const ATA = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
         for (i = 0; i < 3; i++) for (j = 0; j < 3; j++) for (k = 0; k < 3; k++) ATA[i][j] += A[k][i] * A[k][j];
         const e = _eigSym3(ATA), order = [0, 1, 2];
-        order.sort(function (x, y) { return e.vals[y] - e.vals[x]; });
+        order.sort((x, y) => e.vals[y] - e.vals[x]);
         let V = [e.vecs[order[0]], e.vecs[order[1]], e.vecs[order[2]]];
         const lmax = Math.max(e.vals[0], e.vals[1], e.vals[2]), lmin = Math.min(e.vals[0], e.vals[1], e.vals[2]);
         if (prevV) {
@@ -486,7 +486,7 @@
         return map;
     }
 
-    window.drawhookcanvas = function (e, imagemodel) {
+    window.drawhookcanvas = (e, imagemodel) => {
         try {
             if (!e) return e;
             // 32/64/128 px square images are usually low-res placeholders of a bigger texture; they are
@@ -498,7 +498,7 @@
             if (imagemodel && e.options && imagemodel.attributes && imagemodel.attributes.images) {
                 const alpha = e.options.format;
                 let url_image = e.url, max_size = 0, obr = e;
-                imagemodel.attributes.images.forEach(function (img) {
+                imagemodel.attributes.images.forEach((img) => {
                     const ok = alpha === 'A' ? img.options.format === alpha : true;
                     let d = img.width; while (d > 0 && d % 2 === 0) d = d / 2;
                     if (img.size > max_size && ok && d === 1) {
@@ -519,7 +519,7 @@
         return e;
     };
 
-    window.drawhookimg = function (gl, t) {
+    window.drawhookimg = (gl, t) => {
         try {
             const url = t[5].currentSrc, width = t[5].width, height = t[5].height;
             if (!saveimagecache2[url]) return;
@@ -546,7 +546,7 @@
             const name   = saveimagecache2[url].name + ext;
             saveimagecache2[url].fileExt = ext;
             saveimagecache2[url].dataURL = true;   // capture flag only (a base64 copy was never read)
-            canvas.toBlob(function (b) { objects[name] = b; }, mime, q);
+            canvas.toBlob((b) => { objects[name] = b; }, mime, q);
         } catch (e) { warn('drawhookimg', e.message); }
     };
 
@@ -644,27 +644,27 @@
             if (drop[i]) remap.push(-1);
             else { remap.push(kept.length); kept.push(nodes[i]); }
         }
-        kept.forEach(function (n) {
+        kept.forEach((n) => {
             if (!n.children) return;
             const c2 = [];
-            n.children.forEach(function (c) { if (remap[c] >= 0) c2.push(remap[c]); });
+            n.children.forEach((c) => { if (remap[c] >= 0) c2.push(remap[c]); });
             n.children = c2;
         });
-        skins.forEach(function (sk) {
-            sk.joints = sk.joints.map(function (j) { return remap[j]; });
+        skins.forEach((sk) => {
+            sk.joints = sk.joints.map((j) => remap[j]);
             if (typeof sk.skeleton === 'number') sk.skeleton = remap[sk.skeleton];
         });
-        (animations || []).forEach(function (a) {
-            a.channels.forEach(function (c) {
+        (animations || []).forEach((a) => {
+            a.channels.forEach((c) => {
                 if (c.target && typeof c.target.node === 'number') c.target.node = remap[c.target.node];
             });
         });
         nodes.length = 0;
-        kept.forEach(function (n) { nodes.push(n); });
+        kept.forEach((n) => { nodes.push(n); });
         return remap[rootIdx];
     }
 
-    window.attachbody = function (obj) {
+    window.attachbody = (obj) => {
         try {
             if (!obj || obj._faked === true) return;
             const name = obj._name;
@@ -746,7 +746,7 @@
 
     function snapshotFrame() {
         const meshesOut = [];
-        window.allmodel.forEach(function (obj) {
+        window.allmodel.forEach((obj) => {
             const world = computeWorldMatrix(obj);
             let wts = null;
             try {
@@ -815,7 +815,7 @@
                 warn('auto record produced no frames');
             }
         }
-        waitFrames(CONFIG.CLIP_SETTLE_FRAMES, function () {
+        waitFrames(CONFIG.CLIP_SETTLE_FRAMES, () => {
             try { recordClipRealtime(mgr, def, base, done); } catch (e) { err('auto record', e.message); done([]); }
         });
         return true;
@@ -892,7 +892,7 @@
 
     function waitFrames(n, cb) {
         if (n <= 0) { cb(); return; }
-        requestAnimationFrame(function () { waitFrames(n - 1, cb); });
+        requestAnimationFrame(() => { waitFrames(n - 1, cb); });
     }
 
     function activeClipUids(mgr) {
@@ -928,7 +928,7 @@
         const mgr = findAnimationManager();
         if (mgr && mgr._startAnimations) mgr._startAnimations = {};
         try { items[k].click(); } catch (e) { warn('clip item click', e.message); cb(false); return; }
-        waitFrames(6, function () { cb(true); });
+        waitFrames(6, () => { cb(true); });
     }
 
     // Clicks every list item and reads which clip UID became active.
@@ -948,7 +948,7 @@
         function next() {
             if (i >= count) { finish(); return; }
             const k = i++;
-            selectClipItem(k, function (ok) {
+            selectClipItem(k, (ok) => {
                 if (!ok) { next(); return; }
                 const li = getClipItems()[k];
                 if (!li) { warn('clip list item ' + k + ' vanished during discovery, skipped'); next(); return; }
@@ -974,7 +974,7 @@
             for (let d = 0; d < defs.length; d++) {
                 if (defs[d].uid === origUid) { origIdx = defs[d].index; break; }
             }
-            selectClipItem(origIdx, function () {
+            selectClipItem(origIdx, () => {
                 window.clipDefs = defs;
                 log('discovered ' + defs.length + ' clips');
                 for (let q = 0; q < defs.length; q++) {
@@ -1064,7 +1064,7 @@
     }
 
     function recordClip(mgr, def, cb) {
-        selectClipItem(def.index, function (ok) {
+        selectClipItem(def.index, (ok) => {
             const act = activeClipUids(mgr);
             if (!ok || act.length !== 1 || act[0] !== def.uid) {
                 warn('clip switch failed: ' + def.name + ' active=' + act.join(','));
@@ -1080,7 +1080,7 @@
                 if (!mgr._pause) mgr.togglePause();
                 mgr.setSeekTime(base);
             } catch (e) { err('clip seek ' + def.name, e.message); cb(null); return; }
-            waitFrames(CONFIG.CLIP_SETTLE_FRAMES, function () {
+            waitFrames(CONFIG.CLIP_SETTLE_FRAMES, () => {
                 try { recordClipRealtime(mgr, def, base, cb); } catch (e) { err('clip record ' + def.name, e.message); cb(null); }
             });
         });
@@ -1096,7 +1096,7 @@
             cb();
             return;
         }
-        selectClipItem(window.clipStaticIdx, function (ok) {
+        selectClipItem(window.clipStaticIdx, (ok) => {
             const act = activeClipUids(mgr);
             if (!ok || act.length) {
                 warn('static pose: selecting the item failed or left clips active (' + act.length + ')');
@@ -1105,9 +1105,9 @@
             }
             // The viewer may skip updates while paused with no clip; let it run briefly.
             if (mgr._pause) mgr.togglePause();
-            waitFrames(6, function () {
+            waitFrames(6, () => {
                 const snapA = snapshotFrame();
-                waitFrames(3, function () {
+                waitFrames(3, () => {
                     let snapB = snapshotFrame(), moved = 0;
                     for (let m = 0; m < snapA.meshes.length; m++) {
                         const pa = snapA.meshes[m].palette, pb = snapB.meshes[m] && snapB.meshes[m].palette;
@@ -1139,7 +1139,7 @@
             log('record-all finished, clips recorded: ' + window.clips.length);
         }
         try {
-            selectClipItem(origIdx, function () {
+            selectClipItem(origIdx, () => {
                 try { if (mgr._pause !== wasPaused) mgr.togglePause(); }
                 catch (e) { err('endRecordAll restore pause', e.message); }
                 reset();
@@ -1168,7 +1168,7 @@
             ', fps ' + (+CONFIG.RECORD_FPS > 0 ? CONFIG.RECORD_FPS : 'every frame') + ' (keep this tab visible: a hidden tab pauses rendering and frames are skipped)');
         let safeOrigIdx = 0;
         try {
-        discoverAnimationClips(function (defs, origIdx) {
+        discoverAnimationClips((defs, origIdx) => {
             safeOrigIdx = origIdx;
             if (defs.length < 2) {
                 warn('only ' + defs.length + ' usable clip(s); single-clip path stays in use');
@@ -1185,7 +1185,7 @@
                 const d = defs[i++];
                 window.clipProgress = i + '/' + defs.length;
                 try {
-                recordClip(mgr, d, function (frames) {
+                recordClip(mgr, d, (frames) => {
                     if (window.clipCancel) {
                         warn('clip discarded (cancelled): ' + d.name);
                     } else if (frames && frames.length > 1) {
@@ -1201,7 +1201,7 @@
                     endRecordAll(mgr, wasPaused, origIdx);
                 }
             }
-            captureStaticPose(mgr, function () { nextClip(); });
+            captureStaticPose(mgr, () => { nextClip(); });
         });
         } catch (e) {
             err('record-all', e.message);
@@ -1213,7 +1213,7 @@
     // UI panel
     // ====================================================================
     // A hidden tab stops requestAnimationFrame: the viewer stops rendering and recording skips frames.
-    document.addEventListener('visibilitychange', function () {
+    document.addEventListener('visibilitychange', () => {
         if (document.hidden && (window.animationRecording || window.clipRecording)) {
             warn('tab hidden during recording: rendering pauses, frames will be skipped or the clip may be truncated; keep the tab visible');
         }
@@ -1253,14 +1253,14 @@
         const btnDL = document.createElement('button');
         btnDL.textContent = 'DOWNLOAD GLB';
         btnDL.style.cssText = 'padding:6px 10px;background:#c22;color:#fff;border:0;border-radius:4px;cursor:pointer;font-family:monospace;font-size:12px;';
-        btnDL.addEventListener('click', function () { downloadGLB(); });
+        btnDL.addEventListener('click', () => { downloadGLB(); });
         panel.appendChild(btnDL);
 
         const btnRec = document.createElement('button');
         btnRec.id = 'recBtnLabel';
         btnRec.textContent = 'RECORD';
         btnRec.style.cssText = btnDL.style.cssText;
-        btnRec.addEventListener('click', function () {
+        btnRec.addEventListener('click', () => {
             if (!window.animationRecording) startRecording(); else stopRecording();
         });
         panel.appendChild(btnRec);
@@ -1269,7 +1269,7 @@
         btnAll.id = 'recAllBtn';
         btnAll.textContent = 'RECORD ALL CLIPS';
         btnAll.style.cssText = btnDL.style.cssText;
-        btnAll.addEventListener('click', function () {
+        btnAll.addEventListener('click', () => {
             if (window.clipRecording) {
                 window.clipCancel = true;
                 setRecAllLabel('CANCELLING...');
@@ -1317,7 +1317,7 @@
         input1.max = '60';
         input1.value = CONFIG.MAX_RECORD_SECONDS;
         input1.style.cssText = 'width:52px;background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
-        input1.addEventListener('change', function () {
+        input1.addEventListener('change', () => {
             let v = parseInt(input1.value, 10);
             if (isNaN(v) || v < 1) v = 1;
             if (v > 60) v = 60;
@@ -1336,13 +1336,13 @@
         rowF.appendChild(labelF);
         const selF = document.createElement('select');
         selF.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
-        [[0, 'Max (every frame)'], [60, '60'], [30, '30'], [24, '24'], [15, '15']].forEach(function (o) {
+        [[0, 'Max (every frame)'], [60, '60'], [30, '30'], [24, '24'], [15, '15']].forEach((o) => {
             const op = document.createElement('option');
             op.value = String(o[0]); op.textContent = o[1];
             if ((+CONFIG.RECORD_FPS || 0) === o[0]) op.selected = true;
             selF.appendChild(op);
         });
-        selF.addEventListener('change', function () {
+        selF.addEventListener('change', () => {
             CONFIG.RECORD_FPS = parseInt(selF.value, 10) || 0;
             saveConfig();
             log('record fps set to ' + (CONFIG.RECORD_FPS || 'every frame'));
@@ -1359,7 +1359,7 @@
         const check2 = document.createElement('input');
         check2.type = 'checkbox';
         check2.checked = CONFIG.AUTO_RELOAD_ON_FAILURE;
-        check2.addEventListener('change', function () {
+        check2.addEventListener('change', () => {
             CONFIG.AUTO_RELOAD_ON_FAILURE = check2.checked;
             saveConfig();
         });
@@ -1375,7 +1375,7 @@
         const check5 = document.createElement('input');
         check5.type = 'checkbox';
         check5.checked = !!CONFIG.DOUBLE_SIDED;
-        check5.addEventListener('change', function () {
+        check5.addEventListener('change', () => {
             CONFIG.DOUBLE_SIDED = check5.checked;
             saveConfig();
             log('double sided set to ' + check5.checked);
@@ -1392,7 +1392,7 @@
         const check5b = document.createElement('input');
         check5b.type = 'checkbox';
         check5b.checked = !!CONFIG.DOUBLE_SIDED_AUTO;
-        check5b.addEventListener('change', function () {
+        check5b.addEventListener('change', () => {
             CONFIG.DOUBLE_SIDED_AUTO = check5b.checked;
             saveConfig();
             log('auto single sided set to ' + check5b.checked);
@@ -1409,7 +1409,7 @@
         const check5c = document.createElement('input');
         check5c.type = 'checkbox';
         check5c.checked = !!CONFIG.DROP_STRIP_SLIVERS;
-        check5c.addEventListener('change', function () {
+        check5c.addEventListener('change', () => {
             CONFIG.DROP_STRIP_SLIVERS = check5c.checked;
             saveConfig();
             log('drop strip slivers set to ' + check5c.checked);
@@ -1426,7 +1426,7 @@
         const check5d = document.createElement('input');
         check5d.type = 'checkbox';
         check5d.checked = !!CONFIG.REDUCE_KEYS;
-        check5d.addEventListener('change', function () {
+        check5d.addEventListener('change', () => {
             CONFIG.REDUCE_KEYS = check5d.checked;
             saveConfig();
             log('reduce keyframes set to ' + check5d.checked);
@@ -1443,7 +1443,7 @@
         const check5e = document.createElement('input');
         check5e.type = 'checkbox';
         check5e.checked = !!CONFIG.KEEP_STILL_CLIPS;
-        check5e.addEventListener('change', function () {
+        check5e.addEventListener('change', () => {
             CONFIG.KEEP_STILL_CLIPS = check5e.checked;
             saveConfig();
             log('keep still clips set to ' + check5e.checked);
@@ -1460,7 +1460,7 @@
         const check6 = document.createElement('input');
         check6.type = 'checkbox';
         check6.checked = !!CONFIG.VERTEX_COLOR_SRGB;
-        check6.addEventListener('change', function () {
+        check6.addEventListener('change', () => {
             CONFIG.VERTEX_COLOR_SRGB = check6.checked;
             saveConfig();
             log('vertex color sRGB->linear set to ' + check6.checked);
@@ -1477,7 +1477,7 @@
         const check7 = document.createElement('input');
         check7.type = 'checkbox';
         check7.checked = !!CONFIG.FLAT_MR_FROM_VIEWER;
-        check7.addEventListener('change', function () {
+        check7.addEventListener('change', () => {
             CONFIG.FLAT_MR_FROM_VIEWER = check7.checked;
             saveConfig();
             log('flat metal/rough from viewer set to ' + check7.checked);
@@ -1497,7 +1497,7 @@
         input8.min = '0.0001';
         input8.value = CONFIG.EXPORT_SCALE;
         input8.style.cssText = 'width:64px;background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
-        input8.addEventListener('change', function () {
+        input8.addEventListener('change', () => {
             let v = parseFloat(input8.value);
             if (isNaN(v) || v <= 0) v = 1;
             input8.value = v;
@@ -1516,14 +1516,14 @@
         row3.appendChild(label3);
         const sel3 = document.createElement('select');
         sel3.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
-        [['jpeg','JPEG (small)'], ['png','PNG (lossless)']].forEach(function (opt) {
+        [['jpeg','JPEG (small)'], ['png','PNG (lossless)']].forEach((opt) => {
             const o = document.createElement('option');
             o.value = opt[0];
             o.textContent = opt[1];
             if (CONFIG.MR_TEXTURE_FORMAT === opt[0]) o.selected = true;
             sel3.appendChild(o);
         });
-        sel3.addEventListener('change', function () {
+        sel3.addEventListener('change', () => {
             CONFIG.MR_TEXTURE_FORMAT = sel3.value;
             saveConfig();
         });
@@ -1538,14 +1538,14 @@
         row4.appendChild(label4);
         const sel4 = document.createElement('select');
         sel4.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
-        [['clip0','Clip 1st frame'], ['static','Static Pose']].forEach(function (opt) {
+        [['clip0','Clip 1st frame'], ['static','Static Pose']].forEach((opt) => {
             const o = document.createElement('option');
             o.value = opt[0];
             o.textContent = opt[1];
             if (CONFIG.REST_POSE_SOURCE === opt[0]) o.selected = true;
             sel4.appendChild(o);
         });
-        sel4.addEventListener('change', function () {
+        sel4.addEventListener('change', () => {
             CONFIG.REST_POSE_SOURCE = sel4.value;
             saveConfig();
             log('rest pose source set to ' + sel4.value);
@@ -1555,7 +1555,7 @@
 
         panel.appendChild(configDiv);
 
-        gear.addEventListener('click', function () {
+        gear.addEventListener('click', () => {
             configDiv.style.display = configDiv.style.display === 'none' ? 'flex' : 'none';
         });
 
@@ -1565,7 +1565,7 @@
 
         // Warn if the bad bundle was served. After 8s, show hint. After
         // 12s, auto-reload once (guarded by sessionStorage so we don't loop).
-        setTimeout(function () {
+        setTimeout(() => {
             if (window._anyAnchorsMatched) return;
             const s = document.getElementById('ripper-status');
             if (s) {
@@ -1575,7 +1575,7 @@
             log('no anchors matched after 8s; bundle is the incompatible build');
         }, 8000);
 
-        setTimeout(function () {
+        setTimeout(() => {
             if (window._anyAnchorsMatched) return;
             let already;
             try { already = sessionStorage.getItem('ripper_reloaded'); } catch (e) { already = '1'; }
@@ -1586,7 +1586,7 @@
             location.reload();
         }, 12000);
 
-        setInterval(function () {
+        setInterval(() => {
             const s = document.getElementById('ripper-status');
             if (!s) return;
             const m = window.allmodel.length;
@@ -1600,18 +1600,18 @@
             s.style.color = busy ? '#f66' : '#aaa';
         }, 500);
 
-        (function (el, handle) {
+        ((el, handle) => {
             let ox = 0, oy = 0, drag = false;
-            handle.addEventListener('mousedown', function (e) {
+            handle.addEventListener('mousedown', (e) => {
                 drag = true; ox = e.clientX - el.offsetLeft; oy = e.clientY - el.offsetTop; e.preventDefault();
             });
-            document.addEventListener('mousemove', function (e) {
+            document.addEventListener('mousemove', (e) => {
                 if (!drag) return;
                 el.style.left = (e.clientX - ox) + 'px';
                 el.style.top  = (e.clientY - oy) + 'px';
                 el.style.right = 'auto';
             });
-            document.addEventListener('mouseup', function () { drag = false; });
+            document.addEventListener('mouseup', () => { drag = false; });
         })(panel, title);
     }
 
@@ -1620,7 +1620,7 @@
     // ====================================================================
     function parseobj(obj) {
         const list = [];
-        (obj._primitives || []).forEach(function (p) {
+        (obj._primitives || []).forEach((p) => {
             if (p && p.indices) list.push({ mode: p.mode, indices: p.indices._elements });
         });
         const attr = obj._attributes || {};
@@ -1696,7 +1696,7 @@
         if (roughBlob) pending.push(createImageBitmap(roughBlob));
         if (glossBlob) pending.push(createImageBitmap(glossBlob));
 
-        return Promise.all(pending).then(function (bmps) {
+        return Promise.all(pending).then((bmps) => {
             let i = 0;
             const mBmp = metalBlob ? bmps[i++] : null;
             const rBmp = roughBlob ? bmps[i++] : null;
@@ -1737,8 +1737,8 @@
             const mime = useJpeg ? 'image/jpeg' : 'image/png';
             const ext  = useJpeg ? '.jpg' : '.png';
             const q    = useJpeg ? 0.92 : undefined;
-            return new Promise(function (res) {
-                oc.toBlob(function (b) { res({ blob: b, ext: ext, hasM: !!mBmp, hasR: !!(rBmp || gBmp) }); }, mime, q);
+            return new Promise((res) => {
+                oc.toBlob((b) => { res({ blob: b, ext: ext, hasM: !!mBmp, hasR: !!(rBmp || gBmp) }); }, mime, q);
             });
         });
     }
@@ -1746,7 +1746,7 @@
     function mergeMRTextures() {
         const jobs = [];
         const seen = {};
-        window.allmodel.forEach(function (obj, i) {
+        window.allmodel.forEach((obj, i) => {
             const ss = obj.stateset;
             const meshName = obj._name
                          || (ss && ss._name)
@@ -1757,7 +1757,7 @@
             if (seen[san]) return;
             seen[san] = true;
             jobs.push(
-                _mergeOneMR(cm).then(function (result) {
+                _mergeOneMR(cm).then((result) => {
                     if (!result || !result.blob) return;
                     const fname = san + '_MR' + result.ext;
                     objects[fname] = result.blob;
@@ -1769,7 +1769,7 @@
                         hasR: result.hasR
                     };
                     log('merged MR:', meshName, '→', fname, result.blob.size + 'B');
-                }).catch(function (e) {
+                }).catch((e) => {
                     warn('MR merge failed for', meshName, e.message);
                 })
             );
@@ -1826,7 +1826,7 @@
             warn('opacity merge: missing source (color=' + !!colorBlob + ' mask=' + !!maskBlob + ')');
             return Promise.resolve(null);
         }
-        return Promise.all([noColor ? null : createImageBitmap(colorBlob), createImageBitmap(maskBlob)]).then(function (bmps) {
+        return Promise.all([noColor ? null : createImageBitmap(colorBlob), createImageBitmap(maskBlob)]).then((bmps) => {
             const mBmp = bmps[1], cBmp = bmps[0] || mBmp;
             const W = cBmp.width, H = cBmp.height;
             function readPixels(bmp) {
@@ -1851,8 +1851,8 @@
             const oc = document.createElement('canvas');
             oc.width = W; oc.height = H;
             oc.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
-            return new Promise(function (res) {
-                oc.toBlob(function (b) { res({ blob: b, ext: '.png' }); }, 'image/png');   // PNG: JPEG drops alpha
+            return new Promise((res) => {
+                oc.toBlob((b) => { res({ blob: b, ext: '.png' }); }, 'image/png');   // PNG: JPEG drops alpha
             });
         });
     }
@@ -1871,7 +1871,7 @@
         _opacityNoColor = {};
         const jobs = [];
         const seen = {};
-        window.allmodel.forEach(function (obj, i) {
+        window.allmodel.forEach((obj, i) => {
             const ss = obj.stateset;
             const meshName = obj._name || (ss && ss._name) || ('mesh_' + i);
             const cm = getChannelTextureMap(obj);
@@ -1899,7 +1899,7 @@
             if (_alphaFirst[okey]) { _alphaShare[san] = _alphaFirst[okey]; log('opacity merge: ' + meshName + ' shares the merged texture of ' + _alphaFirst[okey]); return; }
             _alphaFirst[okey] = san;
             jobs.push(
-                _mergeOneOpacity(cm).then(function (result) {
+                _mergeOneOpacity(cm).then((result) => {
                     if (!result || !result.blob) return;
                     const fname = san + '_Alpha' + result.ext;
                     objects[fname] = result.blob;
@@ -1909,7 +1909,7 @@
                         dataURL: 'merged'
                     };
                     log('merged opacity:', meshName, '→', fname, result.blob.size + 'B');
-                }).catch(function (e) {
+                }).catch((e) => {
                     warn('opacity merge failed for', meshName, e.message);
                 })
             );
@@ -1926,7 +1926,7 @@
     // against what has been captured, and wait a little if some are missing.
     function textureReadiness() {
         let seen = {}, expected = 0, missing = 0;
-        window.allmodel.forEach(function (obj) {
+        window.allmodel.forEach((obj) => {
             const cm = getChannelTextureMap(obj);
             for (let ch in cm) {
                 if (!cm.hasOwnProperty(ch) || !cm[ch] || !cm[ch].url) continue;
@@ -1946,10 +1946,10 @@
         if (maxMs <= 0 || first.missing === 0) return Promise.resolve();
         log('textures still loading: ' + (first.expected - first.missing) + '/' + first.expected +
             ' captured, waiting up to ' + CONFIG.TEXTURE_WAIT_SECONDS + 's (keep this tab visible)');
-        return new Promise(function (resolve) {
+        return new Promise((resolve) => {
             let start = Date.now(), lastProgressAt = start, lastCaptured = first.expected - first.missing;
             (function poll() {
-                setTimeout(function () {
+                setTimeout(() => {
                     const r = textureReadiness(), captured = r.expected - r.missing, now = Date.now();
                     if (captured > lastCaptured) {
                         lastCaptured = captured;
@@ -1983,9 +1983,9 @@
         if (window.animationRecording || window.clipRecording) { warn('recording is still running: press STOP first (export would miss the animation)'); return; }
         _exporting = true;
         log('export started');
-        waitForTextures().then(mergeMRTextures).then(mergeOpacityTextures).then(function () {
+        waitForTextures().then(mergeMRTextures).then(mergeOpacityTextures).then(() => {
             _downloadGLBSync();
-        }).catch(function (e) {
+        }).catch((e) => {
             _exporting = false;
             err('export failed:', e.message, e.stack);
         });
@@ -1999,7 +1999,7 @@
             const nodeMap = new Map();
             const nodes = [];
 
-            allNodes.forEach(function (obj, idx) {
+            allNodes.forEach((obj, idx) => {
                 nodeMap.set(obj, idx);
                 const name = obj._name || (obj.stateset && obj.stateset._name) || ('mesh_' + idx);
                 const world = computeWorldMatrix(obj);
@@ -2030,7 +2030,7 @@
                 return idx;
             }
 
-            allNodes.forEach(function (obj, mIdx) {
+            allNodes.forEach((obj, mIdx) => {
                 if (!obj._primitives) return;
                 const mdl = parseobj(obj);
                 if (!mdl.vertex || mdl.vertex.length === 0) return;
@@ -2135,7 +2135,7 @@
                 let mergedInd = null, mergedMode = 4;
                 if (mdl.primitives.length > 0) {
                     let triParts = [], skippedP = 0, modeLog = [];
-                    mdl.primitives.forEach(function (pr) {
+                    mdl.primitives.forEach((pr) => {
                         let pm = (pr.mode === undefined || pr.mode === null) ? 4 : pr.mode, pi2 = pr.indices, tl = [], t2;
                         modeLog.push(pm + 'x' + (pi2 ? pi2.length : 0));
                         if (!pi2 || !pi2.length) return;
@@ -2168,14 +2168,14 @@
                         } else { skippedP++; return; }
                         // Diagnostic for stray long thin triangles ("stripes"): flag triangles whose longest edge is
                         // far above the typical edge of this mesh and print where they come from in the index list.
-                        if (tl.length) (function () {
+                        if (tl.length) (() => {
                             let vv = mdl.vertex, nT = tl.length / 3, q, lens = [], mn = [1e30, 1e30, 1e30], mx = [-1e30, -1e30, -1e30];
                             function el(i, j) { const dx = vv[i * 3] - vv[j * 3], dy = vv[i * 3 + 1] - vv[j * 3 + 1], dz = vv[i * 3 + 2] - vv[j * 3 + 2]; return Math.sqrt(dx * dx + dy * dy + dz * dz); }
                             for (q = 0; q < vc; q++) for (let ax = 0; ax < 3; ax++) { const cv = vv[q * 3 + ax]; if (cv < mn[ax]) mn[ax] = cv; if (cv > mx[ax]) mx[ax] = cv; }
                             const size = Math.sqrt(Math.pow(mx[0] - mn[0], 2) + Math.pow(mx[1] - mn[1], 2) + Math.pow(mx[2] - mn[2], 2));
                             const step = Math.max(1, Math.floor(nT / 2000));
                             for (q = 0; q < nT; q += step) lens.push(Math.max(el(tl[q * 3], tl[q * 3 + 1]), el(tl[q * 3 + 1], tl[q * 3 + 2]), el(tl[q * 3], tl[q * 3 + 2])));
-                            lens.sort(function (a, b) { return a - b; });
+                            lens.sort((a, b) => a - b);
                             let med = lens[lens.length >> 1] || 0, lim = Math.max(20 * med, 0.05 * size), hits = 0, shown = 0, drop = {}, nDrop = 0, cand = [];
                             for (q = 0; q < nT; q++) {
                                 const a0 = tl[q * 3], b0 = tl[q * 3 + 1], c0 = tl[q * 3 + 2];
@@ -2205,7 +2205,7 @@
                                     if (wmap[wk] === undefined) wmap[wk] = nw++;
                                     wid[vi] = wmap[wk];
                                 }
-                                const ek = function (i, j) { const a1 = wid[i], b1 = wid[j]; return a1 < b1 ? a1 + '_' + b1 : b1 + '_' + a1; };
+                                const ek = (i, j) => { const a1 = wid[i], b1 = wid[j]; return a1 < b1 ? a1 + '_' + b1 : b1 + '_' + a1; };
                                 let ecount = {}, ci2, e3;
                                 for (ci2 = 0; ci2 < cand.length; ci2++) {
                                     const cq = cand[ci2], cv3 = [tl[cq * 3], tl[cq * 3 + 1], tl[cq * 3 + 2]];
@@ -2243,7 +2243,7 @@
                     if (mdl.primitives.length > 1) log('primitives:', nm, mdl.primitives.length, '(mode x indices: ' + modeLog.join(', ') + ')');
                     if (triParts.length) {
                         mergedInd = [];
-                        triParts.forEach(function (tl) { for (let tq = 0; tq < tl.length; tq++) mergedInd.push(tl[tq]); });
+                        triParts.forEach((tl) => { for (let tq = 0; tq < tl.length; tq++) mergedInd.push(tl[tq]); });
                         if (skippedP) warn('mesh', nm, ':', skippedP, 'non-triangle primitive(s) not exported');
                     }
                 }
@@ -2397,9 +2397,9 @@
             }
 
             // Channels the viewer shows with a texture that did not make it into the export.
-            mats.forEach(function (m, mi) {
+            mats.forEach((m, mi) => {
                 const chan = matsChannelInfo[mi] || {};
-                (function () {
+                (() => {
                     const fl = matsFlat[mi], mp = fl && fl.__map, lost = [], atl = [];
                     if (mp) for (let mk2 in mp) {
                         if (!mp.hasOwnProperty(mk2) || !(mp[mk2] >= 0) || mk2 === 'Inspector' || mk2 === 'Matcap') continue;
@@ -2422,7 +2422,7 @@
             if (!textures.length && mats.length && anyRealTex) warn('no textures were captured at all: reload the page, wait until the model is fully shown, then export (see tools/probe-textures.js if it keeps happening)');
 
             if (textures.length) {
-                mats.forEach(function (m, mi) {
+                mats.forEach((m, mi) => {
                     if (!matHasUV[m.name]) return;
                     const chan = matsChannelInfo[mi] || {};
                     let assigned = false;
@@ -2493,7 +2493,7 @@
             // Flat material values for channels without a texture (texture-less models): base
             // color, metalness, roughness, emission. Textured channels keep factor 1 so the
             // texture alone decides, as before.
-            mats.forEach(function (m, mi) {
+            mats.forEach((m, mi) => {
                 const flat = matsFlat[mi], chan = matsChannelInfo[mi] || {}, pbr = m.pbrMetallicRoughness;
                 if (!flat) return;
                 const did = [];
@@ -2563,7 +2563,7 @@
             // expresses per material. We cannot read that setting yet, so it is a manual option.
             if (CONFIG.DOUBLE_SIDED) {
                 const singleNames = [];
-                mats.forEach(function (m, mi) {
+                mats.forEach((m, mi) => {
                     const cv = matsFlat[mi] ? matsFlat[mi].__cull : undefined;   // 1029 (GL_BACK) = Single Sided ON, 0 = OFF
                     const on = !(cv === undefined || cv === null || cv === 0 || cv === false || /^(none|0|false|off)?$/i.test(String(cv)));
                     if (CONFIG.DOUBLE_SIDED_AUTO && on) { singleNames.push(m.name); return; }
@@ -2578,7 +2578,7 @@
             const animBase = mlA ? mlA.textContent.trim().replace(/\.+$/, '') : 'model';
             let clipSets = [];
             if (window.clips && window.clips.length > 1) {
-                window.clips.forEach(function (c) {
+                window.clips.forEach((c) => {
                     if (c && c.frames && c.frames.length > 1) {
                         clipSets.push({ name: c.name, frames: c.frames });
                     }
@@ -2602,7 +2602,7 @@
             const keyStats = { before: 0, after: 0 };
             function lazyTimeAcc(times) {
                 let idx = -1;
-                return function () {
+                return () => {
                     if (idx < 0) {
                         idx = accs.length;
                         accs.push({ bufferView: addBV(new Float32Array(times)), componentType: 5126, count: times.length,
@@ -2643,18 +2643,18 @@
             }
 
             // One time accessor + sampler/channel lists per clip.
-            const tracks = clipSets.map(function (cs) {
+            const tracks = clipSets.map((cs) => {
                 // Start every clip at exactly t = 0 (the single-clip recorder's first frame
                 // lands ~16 ms after the start). Store float32-rounded values so the
                 // accessor min/max match the buffer exactly.
                 const tFirst = cs.frames[0].time;
-                const times = cs.frames.map(function (f) { return Math.fround(f.time - tFirst); });
+                const times = cs.frames.map((f) => Math.fround(f.time - tFirst));
                 // The time accessor is created on first use, so a clip without motion adds no unused data.
                 let tAcc = -1;
                 const trk = { name: cs.name, frames: cs.frames, times: times, samplers: [], channels: [] };
                 Object.defineProperty(trk, 'timeAcc', {
                     enumerable: true,
-                    get: function () {
+                    get: () => {
                         if (tAcc < 0) {
                             const tV = addBV(new Float32Array(times));
                             tAcc = accs.length;
@@ -2678,7 +2678,7 @@
             }
 
             let staticWarned = false;
-            allNodes.forEach(function (obj, mIdx) {
+            allNodes.forEach((obj, mIdx) => {
                 if (!meshHasSkinning[mIdx]) return;
 
                 const meshNodeIdx = nodeMap.get(obj);
@@ -2806,7 +2806,7 @@
                     const animatedJoints = {};
                     // Does this joint's TRS vary across the clip's own frames? (compared to the clip's FIRST frame,
                     // so slow drift is caught)
-                    const jointClipMoves = function (jx, cx) {
+                    const jointClipMoves = (jx, cx) => {
                         let frC = tracks[cx].frames, prev = null;
                         for (let fj = 0; fj < frC.length; fj++) {
                             const fmeshJ = frC[fj].meshes[mIdx];
@@ -2827,7 +2827,7 @@
                                     smE.palette.length >= paletteRef.palette.length) ? smE.palette : paletteRef.palette;
                     // A joint that does not move in a clip but is held away from the rest pose needs a constant
                     // pose in that clip. Without it, a glTF player shows the rest pose for that joint.
-                    const jointDiffersFromRest = function (jx, cx) {
+                    const jointDiffersFromRest = (jx, cx) => {
                         const f0 = tracks[cx].frames[0].meshes[mIdx], p0 = f0 && f0.palette;
                         if (!p0 || p0.length < (jx + 1) * 12 || restPalE.length < (jx + 1) * 12) return false;
                         const a = expandMat3x4(p0, jx), b = expandMat3x4(restPalE, jx);
@@ -2918,14 +2918,14 @@
                             // Show/hide by scale (scale jumps between ~0 and visible from one sample to the next): the
                             // viewer switches instantly, LINEAR would blend both shapes between the two samples. Hold the old
                             // value until just before the next sample so the switch stays near-instant.
-                            let jTimes = tr.times, jTimeFn = (function (t0) { return function () { return t0.timeAcc; }; })(tr);
+                            let jTimes = tr.times, jTimeFn = ((t0) => () => t0.timeAcc)(tr);
                             if (poseOnly) {
                                 // two equal keys, at the start and the end of the clip, so the clip keeps its length
                                 T = T.concat(T); R = R.concat(R); S = S.concat(S); if (RV.length) RV = RV.concat(RV);
                                 jTimes = [tr.times[0], tr.times[tr.times.length - 1]];
                                 jTimeFn = lazyTimeAcc(jTimes);
                             }
-                            (function () {
+                            (() => {
                                 if (poseOnly) return;
                                 let nF = jTimes.length, mags = [], mxs = 0, hi, hk;
                                 for (hi = 0; hi < nF; hi++) {
@@ -3067,21 +3067,21 @@
                     S.push(d4.scale[0], d4.scale[1], d4.scale[2]);
                 }
                 const tolN = 1e-5 * (sceneSizeWorld || 1);
-                const trFn = function () { return tr.timeAcc; };
+                const trFn = () => tr.timeAcc;
                 emitSampler(tr, tr.times, trFn, T, 3, 'VEC3', nIdx, 'translation', tolN);
                 emitSampler(tr, tr.times, trFn, R, 4, 'VEC4', nIdx, 'rotation', tolN);
                 emitSampler(tr, tr.times, trFn, S, 3, 'VEC3', nIdx, 'scale', tolN);
             }
 
             if (hasFrames) {
-                allNodes.forEach(function (obj, mIdx) {
+                allNodes.forEach((obj, mIdx) => {
                     const nodeIdx = nodeMap.get(obj);
                     if (nodeIdx === undefined || nodes[nodeIdx].mesh === undefined) return;
 
                     // node motion: the recorded world matrix changes within a clip
                     if (!meshHasSkinning[mIdx]) {
                         let moves = [], anyMove = false;
-                        tracks.forEach(function (trk, ti) {
+                        tracks.forEach((trk, ti) => {
                             let f0 = trk.frames[0].meshes[mIdx], w0 = f0 && f0.world, moved = false;
                             for (let fm2 = 1; w0 && fm2 < trk.frames.length && !moved; fm2++) {
                                 const fw = trk.frames[fm2].meshes[mIdx], wn = fw && fw.world;
@@ -3101,11 +3101,11 @@
                             nodes[nodeIdx].translation = dRest.translation;
                             nodes[nodeIdx].rotation = dRest.rotation;
                             nodes[nodeIdx].scale = dRest.scale;
-                            tracks.forEach(function (trk, ti) {
+                            tracks.forEach((trk, ti) => {
                                 if (moves[ti]) trk.moving = true;
                             });
                             let nodeHolds = 0;
-                            tracks.forEach(function (trk, ti) {
+                            tracks.forEach((trk, ti) => {
                                 if (!moves[ti]) {
                                     // Still in this clip: hold its pose if that is not the rest pose (and the clip moves).
                                     let h0 = trk.frames[0].meshes[mIdx], hw = h0 && h0.world, away = false;
@@ -3115,13 +3115,13 @@
                                     if (!away || !(trk.moving || CONFIG.KEEP_STILL_CLIPS)) return;
                                     nodeHolds++;
                                 }
-                                emitNodeTRS(trk, nodeIdx, function (f) {
+                                emitNodeTRS(trk, nodeIdx, (f) => {
                                     const fx = trk.frames[f].meshes[mIdx];
                                     return (fx && fx.world) || rest0;
                                 });
                             });
                             log('node animation: ' + nodes[nodeIdx].name + ' moves in ' +
-                                moves.filter(function (x) { return x; }).length + ' clip(s)' +
+                                moves.filter((x) => x).length + ' clip(s)' +
                                 (nodeHolds ? ', pose held in ' + nodeHolds + ' clip(s)' : ''));
                         }
                     }
@@ -3136,7 +3136,7 @@
                             for (let rw = 0; rw < mi2.n; rw++) restW.push(wr[rw] || 0);
                             meshes[mi2.meshIdx].weights = restW;
                         }
-                        tracks.forEach(function (trk) {
+                        tracks.forEach((trk) => {
                             let base = trk.frames[0].meshes[mIdx], bw = base && base.weights, varies = false;
                             if (!bw) return;
                             let restOff = false;   // constant in this clip, but not the rest weights
@@ -3173,7 +3173,7 @@
             if (tracks.length) {
                 const animList = [];
                 const noMotion = [];
-                tracks.forEach(function (tr) {
+                tracks.forEach((tr) => {
                     if (tr.channels.length) {
                         animList.push({ name: tr.name, samplers: tr.samplers, channels: tr.channels });
                         log('animation "' + tr.name + '": ' + tr.channels.length + ' channels, '
@@ -3193,13 +3193,13 @@
             const rootMat = YUP.slice();
             const expScale = (typeof CONFIG.EXPORT_SCALE === 'number' && CONFIG.EXPORT_SCALE > 0) ? CONFIG.EXPORT_SCALE : 1;
             if (expScale !== 1) {
-                [0, 1, 2, 4, 5, 6, 8, 9, 10].forEach(function (ix) { rootMat[ix] *= expScale; });
+                [0, 1, 2, 4, 5, 6, 8, 9, 10].forEach((ix) => { rootMat[ix] *= expScale; });
                 log('export scale', expScale);
             }
             nodes.push({ name: 'scene_root', matrix: rootMat, children: [] });
 
             const naturalRoots = [];
-            nodes.forEach(function (n, i) {
+            nodes.forEach((n, i) => {
                 if (i === sceneRootIdx || skippedNodes[i]) return;
                 let hasP = false;
                 for (let j = 0; j < nodes.length; j++) {
@@ -3207,14 +3207,14 @@
                 }
                 if (!hasP) naturalRoots.push(i);
             });
-            naturalRoots.forEach(function (r) {
+            naturalRoots.forEach((r) => {
                 nodes[sceneRootIdx].children.push(r);
             });
             if (Object.keys(skippedNodes).length) {
                 sceneRootIdx = removeNodes(nodes, gltfSkins, animations, skippedNodes, sceneRootIdx);
             }
 
-            nodes.forEach(function (n, ni) {
+            nodes.forEach((n, ni) => {
                 if (ni === sceneRootIdx || !n.matrix) return;
                 let idm = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1], same = n.matrix.length === 16;
                 for (let im = 0; same && im < 16; im++) if (Math.abs(n.matrix[im] - idm[im]) > 1e-9) same = false;
@@ -3222,7 +3222,7 @@
             });
 
             const rootNodes = [sceneRootIdx];
-            nodes.forEach(function (n) {
+            nodes.forEach((n) => {
                 if (n.children && n.children.length === 0) delete n.children;
             });
 
@@ -3240,7 +3240,7 @@
             // Drop textures no material references (captured env/matcap/leftover images) and remap indices.
             const texUsed = {}, texNew = {}, keptImages = [], keptTextures = [], zipTex = {};
             function markTex(o) { if (o && typeof o.index === 'number') texUsed[o.index] = true; }
-            mats.forEach(function (m) {
+            mats.forEach((m) => {
                 const pb = m.pbrMetallicRoughness || {};
                 markTex(pb.baseColorTexture); markTex(pb.metallicRoughnessTexture);
                 markTex(m.normalTexture); markTex(m.occlusionTexture); markTex(m.emissiveTexture);
@@ -3253,7 +3253,7 @@
                 zipTex[imageKeys[textures[ti2].source].key] = imageKeys[textures[ti2].source].safe;
             }
             function remapTex(o) { if (o && typeof o.index === 'number') o.index = texNew[o.index]; }
-            mats.forEach(function (m) {
+            mats.forEach((m) => {
                 const pb = m.pbrMetallicRoughness || {};
                 remapTex(pb.baseColorTexture); remapTex(pb.metallicRoughnessTexture);
                 remapTex(m.normalTexture); remapTex(m.occlusionTexture); remapTex(m.emissiveTexture);
@@ -3309,11 +3309,11 @@
                     zip.file('textures/' + zipTex[tn], objects[tn], { compression: 'STORE' });   // PNG/JPEG are already compressed
                 }
             }
-            zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }).then(function (content) {
+            zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }).then((content) => {
                 saveAs(content, modelName + '.zip');
                 log('export done:', modelName + '.zip');
                 _exporting = false;
-            }).catch(function (e) {
+            }).catch((e) => {
                 _exporting = false;
                 err('zip failed:', e.message);
             });
@@ -3345,7 +3345,7 @@
             else if (typeof e._replace === 'string') { script.textContent = e._replace; }
         }
 
-        const obs = new MutationObserver(function (ms) {
+        const obs = new MutationObserver((ms) => {
             for (let i = 0; i < ms.length; i++) {
                 const m = ms[i];
                 const an = m.addedNodes;
@@ -3368,11 +3368,11 @@
 
     const patchedSrc = {};
 
-    window.onbeforescriptexecute = function (e) {
+    window.onbeforescriptexecute = (e) => {
         // Only handle the script that triggered the event, and each bundle URL once.
         // (Looping over all siblings re-executed the viewer bundle repeatedly and
         // exhausted WebGL contexts / RAM.)
-        [e.script].forEach(function (node) {
+        [e.script].forEach((node) => {
             if (!node || node.tagName !== 'SCRIPT') return;
             if (node.__ripperOwn) return;
             const src = node.src || '';
@@ -3436,7 +3436,7 @@
         const isViewerFrame = (window.self !== window.top) || (location.pathname.indexOf('/embed') !== -1);
         if (!isViewerFrame) return;
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function () { setTimeout(addbtnfunc, 500); });
+            document.addEventListener('DOMContentLoaded', () => { setTimeout(addbtnfunc, 500); });
         } else {
             setTimeout(addbtnfunc, 500);
         }
