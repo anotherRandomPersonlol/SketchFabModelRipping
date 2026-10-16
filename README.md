@@ -1,5 +1,7 @@
 # Sketchfab Ripper
 
+![Sketchfab Ripper: four exported models rendered in Blender](docs/social-preview.png)
+
 > **For personal archival and educational use only.**
 > Respect the copyright of the model creators and the Sketchfab terms of service.
 > Do not use this tool to share models that you do not have the rights to.
