@@ -446,3 +446,10 @@ instead of name; collision only if an artist texture is literally named <mesh>_M
 - Time accessors are created on first use, so clips without motion add no unused accessors.
 - File size: animation data was 97% of the GLB. `reduceKeys` keeps the first and last key and every key needed so that interpolation between kept keys stays within tolerance of every recorded sample (slerp for rotations, segments of at most 32 frames). Tolerances: translation 1e-5 x the largest mesh diagonal, rotation 1e-4 per quaternion component, scale 1e-4 x the largest scale value of the channel. On the test model 45% of the keys stay; the worst error at any recorded sample is within the tolerance (checked with exact glTF interpolation). Hold keys (show/hide by scale) stay because removing them breaks the tolerance. Setting: Reduce keyframes (REDUCE_KEYS, default on).
 - The zip uses DEFLATE (level 6); textures are stored, as PNG/JPEG are already compressed.
+
+## Round 20: Keep still clips (v1.2.0)
+
+- Setting KEEP_STILL_CLIPS (default off). Per skinned mesh, a clip is "still" when no joint of that skeleton moves in it (`jointClipMoves` is the old per-joint test, now a function). For a still clip every joint gets a pose from the clip's first frame, written as two equal keys at the first and last time of the clip, so the clip keeps its length. The same path as animated joints is used (IBM fix Q, shear helper node), only with one frame; the show/hide hold logic and keyframe reduction do not run for a pose.
+- A clip that moves only an unskinned mesh or morph weights still counts as still for the skeleton and gets the skeleton pose too. The setting is off by default for that reason.
+- Not covered: pose clips of unskinned nodes or morph weights. Clips with no channel are still left out of the file.
+- Test needed: the "Simple rigged and animated character" model, which has 8 one-frame pose clips. Expect the log line `skin N: keeping 8 still clip(s) as pose clips` and 8 more animations in the glTF viewer, with the validator reporting no new errors.

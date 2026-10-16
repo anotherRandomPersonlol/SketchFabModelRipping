@@ -73,6 +73,7 @@ Click the gear icon in the panel. The script keeps your settings for the next vi
 | Auto single sided (viewer flag) | On | Keeps a material single-sided if the viewer shows it single-sided. |
 | Drop strip slivers (stripes) | On | Removes long thin triangles that connect separate parts. |
 | Reduce keyframes | On | Leaves out animation keys that the keys before and after them already give. The file gets about half as large. Turn it off if an animation looks wrong. |
+| Keep still clips | Off | A clip in which no joint moves (a pose clip) becomes a pose of the skeleton, with two equal keys. Off: such clips are left out of the file. |
 | Vertex color sRGB>linear | On | Converts vertex colors to the color space that glTF uses. |
 | Flat metal/rough from viewer | On | Uses the metalness and roughness values of the viewer for materials without textures. |
 | Export scale | 1 | Multiplies the size of the model. Use 0.01 for a model in centimeters. |
@@ -84,6 +85,17 @@ Click the gear icon in the panel. The script keeps your settings for the next vi
 - **glTF viewer**: drop the GLB file on [gltf-viewer.donmccurdy.com](https://gltf-viewer.donmccurdy.com/). This viewer shows the export exactly.
 - **Blender**: use **File > Import > glTF 2.0** with the default options.
 - **Validator**: drop the GLB file on the [glTF validator](https://github.khronos.org/glTF-Validator/) to check it.
+
+## Tested models
+
+These models were exported with the script and opened in Blender. The list grows as the script improves. The [Credits](#credits) section has the authors and the license.
+
+- [phoenix bird](https://sketchfab.com/3d-models/phoenix-bird-844ba0cf144a413ea92c779f18912042)
+- [Just a girl](https://sketchfab.com/3d-models/just-a-girl-b2359160a4f54e76b5ae427a55d9594d)
+- [Shiba](https://sketchfab.com/3d-models/shiba-faef9fe5ace445e7b2989d1c1ece361c)
+- [FREE 1975 Porsche 911 (930) Turbo](https://sketchfab.com/3d-models/free-1975-porsche-911-930-turbo-8568d9d14a994b9cae59499f0dbed21e)
+
+A model that fails? Please [report it](#report-a-problem).
 
 ## Known limitations
 

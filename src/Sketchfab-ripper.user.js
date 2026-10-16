@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sketchfab Ripper
 // @namespace    https://github.com/anotherRandomPersonlol/SketchFabModelRipping
-// @version      1.1.4
+// @version      1.2.0
 // @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
 // @license      MIT
@@ -52,6 +52,7 @@
         FLAT_MR_FROM_VIEWER: true,  // true: metalness/roughness of texture-less materials as the viewer shows them; false: neutral metal 0 / rough 0.5
         DROP_STRIP_SLIVERS: true,   // drop long, near-zero-width bridging triangles inside triangle strips (the "stripes")
         REDUCE_KEYS: true,          // drop keyframes that interpolation between the kept keys already reproduces (tolerance scales with the model size)
+        KEEP_STILL_CLIPS: false,    // true: a clip in which no joint moves is exported as a pose clip (2 equal keys); false: such clips are left out
         DOUBLE_SIDED_AUTO: true,    // true: follow the viewer's Single Sided flag per material (cullFace != 0 -> single sided); false: use DOUBLE_SIDED for all
         DOUBLE_SIDED: true          // true: mark every material doubleSided (matches Sketchfab's default, Single Sided OFF); untick for single-sided export
     };
@@ -1432,6 +1433,23 @@
         row5d.appendChild(check5d);
         configDiv.appendChild(row5d);
 
+        var row5e = document.createElement('div');
+        row5e.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
+        var label5e = document.createElement('span');
+        label5e.textContent = 'Keep still clips:';
+        label5e.title = 'On: a clip in which no joint moves (a pose clip) is exported as a pose of the skeleton. Off: such clips are left out of the file.';
+        row5e.appendChild(label5e);
+        var check5e = document.createElement('input');
+        check5e.type = 'checkbox';
+        check5e.checked = !!CONFIG.KEEP_STILL_CLIPS;
+        check5e.addEventListener('change', function () {
+            CONFIG.KEEP_STILL_CLIPS = check5e.checked;
+            saveConfig();
+            log('keep still clips set to ' + check5e.checked);
+        });
+        row5e.appendChild(check5e);
+        configDiv.appendChild(row5e);
+
         var row6 = document.createElement('div');
         row6.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label6 = document.createElement('span');
@@ -2787,52 +2805,67 @@
                 if (hasFrames && paletteRef) {
                     var animatedCount = 0;
                     var animatedJoints = {};
+                    // Does this joint's TRS vary across the clip's own frames? (compared to the clip's FIRST frame,
+                    // so slow drift is caught)
+                    var jointClipMoves = function (jx, cx) {
+                        var frC = tracks[cx].frames, prev = null;
+                        for (var fj = 0; fj < frC.length; fj++) {
+                            var fmeshJ = frC[fj].meshes[mIdx];
+                            var palJ = fmeshJ && fmeshJ.palette;
+                            var mJ = (palJ && palJ.length >= (jx + 1) * 12)
+                                   ? expandMat3x4(palJ, jx) : identityMat4();
+                            if (prev !== null) {
+                                for (var vv = 0; vv < 16; vv++) {
+                                    if (Math.abs(mJ[vv] - prev[vv]) > 1e-5 * Math.max(1, Math.abs(prev[vv]))) return true;
+                                }
+                            } else prev = mJ;
+                        }
+                        return false;
+                    };
+                    // Keep still clips: a clip in which no joint of this skeleton moves gets a pose (2 equal keys).
+                    var stillClip = [], anyStill = false;
+                    if (CONFIG.KEEP_STILL_CLIPS) {
+                        for (var sc = 0; sc < tracks.length; sc++) {
+                            var scMoves = false;
+                            for (var sjx = 0; sjx < jointCount && !scMoves; sjx++) scMoves = jointClipMoves(sjx, sc);
+                            stillClip[sc] = !scMoves;
+                            if (!scMoves) anyStill = true;
+                        }
+                        if (anyStill) log('skin ' + skinIdx + ': keeping ' + stillClip.filter(function (x) { return x; }).length + ' still clip(s) as pose clips');
+                    }
                     for (var jn = 0; jn < jointCount; jn++) {
-                        // Per-clip motion test: does this joint's TRS vary across
-                        // each clip's own frames? Only clips where it varies get
+                        // Per-clip motion test: only clips where this joint varies get
                         // channels. This lets separate clips compose in Blender's
                         // NLA without fighting each other.
                         var clipHasMotion = [];
                         var anyMotion = false;
                         for (var cj = 0; cj < tracks.length; cj++) {
-                            var frC = tracks[cj].frames;
-                            var prev = null, movedHere = false;   // prev = the clip's FIRST frame
-                            for (var fj = 0; fj < frC.length && !movedHere; fj++) {
-                                var fmeshJ = frC[fj].meshes[mIdx];
-                                var palJ = fmeshJ && fmeshJ.palette;
-                                var mJ = (palJ && palJ.length >= (jn + 1) * 12)
-                                       ? expandMat3x4(palJ, jn) : identityMat4();
-                                if (prev !== null) {
-                                    for (var vv = 0; vv < 16; vv++) {
-                                        if (Math.abs(mJ[vv] - prev[vv]) > 1e-5 * Math.max(1, Math.abs(prev[vv]))) { movedHere = true; break; }
-                                    }
-                                }
-                                if (prev === null) prev = mJ;   // slow drift is caught: always compare to frame 0
-                            }
-                            clipHasMotion[cj] = movedHere;
-                            if (movedHere) anyMotion = true;
+                            clipHasMotion[cj] = jointClipMoves(jn, cj);
+                            if (clipHasMotion[cj]) anyMotion = true;
                         }
-                        if (!anyMotion) continue;
-                        animatedCount++;
+                        if (!anyMotion && !anyStill) continue;
+                        if (anyMotion) animatedCount++;
                         var nIdx = jointNodeIndices[jn];
                         animatedJoints[nIdx] = true;
 
                         for (var ci = 0; ci < tracks.length; ci++) {
-                            if (!clipHasMotion[ci]) continue;   // only clips where it moved
+                            var poseOnly = !clipHasMotion[ci] && !!stillClip[ci];   // still clip: one pose from the clip's first frame
+                            if (!clipHasMotion[ci] && !poseOnly) continue;   // only clips where it moved
                             var tr = tracks[ci];
+                            var useN = poseOnly ? 1 : tr.frames.length;
                             var T = [], R = [], S = [], RV = [];
                             var prevQ = null, prevQV = null, prevV = null;   // hemisphere fix resets per clip, per joint
                             var tgtTRS = shearJ[jn] ? makeHelper(jn) : nIdx;   // sheared joint: T/R/S go on the helper
                             var svdSeq = null;
                             if (shearJ[jn]) {
                                 var smats = [];
-                                for (var sfx = 0; sfx < tr.frames.length; sfx++) {
+                                for (var sfx = 0; sfx < useN; sfx++) {
                                     var sfmx = tr.frames[sfx].meshes[mIdx], spx = sfmx && sfmx.palette;
                                     smats.push((spx && spx.length >= (jn + 1) * 12) ? expandMat3x4(spx, jn) : identityMat4());
                                 }
                                 svdSeq = svdSequence(smats);
                             }
-                            for (var fi3 = 0; fi3 < tr.frames.length; fi3++) {
+                            for (var fi3 = 0; fi3 < useN; fi3++) {
                                 var fmesh = tr.frames[fi3].meshes[mIdx];
                                 var pal = fmesh && fmesh.palette;
                                 var mPal = (pal && pal.length >= (jn + 1) * 12)
@@ -2869,7 +2902,14 @@
                             // viewer switches instantly, LINEAR would blend both shapes between the two samples. Hold the old
                             // value until just before the next sample so the switch stays near-instant.
                             var jTimes = tr.times, jTimeFn = (function (t0) { return function () { return t0.timeAcc; }; })(tr);
+                            if (poseOnly) {
+                                // two equal keys, at the start and the end of the clip, so the clip keeps its length
+                                T = T.concat(T); R = R.concat(R); S = S.concat(S); if (RV.length) RV = RV.concat(RV);
+                                jTimes = [tr.times[0], tr.times[tr.times.length - 1]];
+                                jTimeFn = lazyTimeAcc(jTimes);
+                            }
                             (function () {
+                                if (poseOnly) return;
                                 var nF = jTimes.length, mags = [], mxs = 0, hi, hk;
                                 for (hi = 0; hi < nF; hi++) {
                                     var mg = Math.max(Math.abs(S[hi * 3]), Math.abs(S[hi * 3 + 1]), Math.abs(S[hi * 3 + 2]));

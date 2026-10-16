@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.2.0
+
+### New
+- New setting: Keep still clips (off by default). A clip in which no joint moves (a pose clip) is exported as a pose of the skeleton, with two equal keys at the start and the end of the clip. With the setting off, such clips are left out of the file, as before.
+- README: list of tested models.
+
 ## v1.1.4
 
 ### Changed
