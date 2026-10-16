@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.1
+
+### Fixed
+- The export no longer contains the wireframe overlay of the viewer as a second mesh. It looked like a stretched copy of the model made of lines, and it did not move with the animation.
+
+### Changed
+- The log names the clips that are not exported because they do not move.
+
 ## v1.1.0
 
 ### New
