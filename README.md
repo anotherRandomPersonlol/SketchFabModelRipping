@@ -56,7 +56,7 @@ If you do not record, the export contains the model in its current pose.
 
 ## Settings
 
-Click the gear icon in the panel. The script keeps your settings for the next visit.
+Click the gear icon in the panel. The script keeps your settings for the next visit. Hold the pointer on a setting name to see what it does.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -71,7 +71,7 @@ Click the gear icon in the panel. The script keeps your settings for the next vi
 | Flat metal/rough from viewer | On | Uses the metalness and roughness values of the viewer for materials without textures. |
 | Export scale | 1 | Multiplies the size of the model. Use 0.01 for a model in centimeters. |
 | MR format | JPEG | File format of the merged metallic-roughness textures: JPEG (small) or PNG (lossless). |
-| Rest pose | Clip frame 0 | Sets the rest pose of the skeleton: the first recorded frame or the Static Pose of the viewer. |
+| Rest pose | Clip 1st frame | Sets the rest pose of the skeleton: the first recorded frame or the Static Pose of the viewer. |
 
 ## Open the export
 

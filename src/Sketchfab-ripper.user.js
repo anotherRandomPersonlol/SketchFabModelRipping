@@ -3,6 +3,7 @@
 // @version      1.1.2
 // @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
+// @license      MIT
 // @match        https://sketchfab.com/*
 // @match        https://www.sketchfab.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js
@@ -1307,6 +1308,7 @@
         row1.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label1 = document.createElement('span');
         label1.textContent = 'Max seconds:';
+        label1.title = 'Stops a manual recording after this time. RECORD and RECORD ALL CLIPS stop by themselves at the end of each clip.';
         row1.appendChild(label1);
         var input1 = document.createElement('input');
         input1.type = 'number';
@@ -1329,6 +1331,7 @@
         rowF.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var labelF = document.createElement('span');
         labelF.textContent = 'Record FPS:';
+        labelF.title = 'Frames per second in the recording. Max records every frame the viewer draws. Lower values make smaller files.';
         rowF.appendChild(labelF);
         var selF = document.createElement('select');
         selF.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
@@ -1350,6 +1353,7 @@
         row2.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label2 = document.createElement('span');
         label2.textContent = 'Auto-reload:';
+        label2.title = 'On: reloads the page one time if the script cannot connect to the viewer. Off: no reload.';
         row2.appendChild(label2);
         var check2 = document.createElement('input');
         check2.type = 'checkbox';
@@ -1365,6 +1369,7 @@
         row5.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label5 = document.createElement('span');
         label5.textContent = 'Double sided:';
+        label5.title = 'On: materials show both sides, as in the viewer. Off: materials show the front side only.';
         row5.appendChild(label5);
         var check5 = document.createElement('input');
         check5.type = 'checkbox';
@@ -1381,6 +1386,7 @@
         row5b.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label5b = document.createElement('span');
         label5b.textContent = 'Auto single sided (viewer flag):';
+        label5b.title = 'On: a material that the viewer shows single sided stays single sided. Off: the Double sided setting applies to all materials.';
         row5b.appendChild(label5b);
         var check5b = document.createElement('input');
         check5b.type = 'checkbox';
@@ -1397,6 +1403,7 @@
         row5c.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label5c = document.createElement('span');
         label5c.textContent = 'Drop strip slivers (stripes):';
+        label5c.title = 'On: removes long thin triangles that connect separate parts of a mesh. Off: keeps all triangles.';
         row5c.appendChild(label5c);
         var check5c = document.createElement('input');
         check5c.type = 'checkbox';
@@ -1413,7 +1420,7 @@
         row5d.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label5d = document.createElement('span');
         label5d.textContent = 'Reduce keyframes:';
-        label5d.title = 'On: smaller file, keys that interpolation already reproduces are left out. Off: every recorded frame is kept.';
+        label5d.title = 'On: leaves out animation keys that the keys before and after them already give. The file is about half as large. Off: keeps every recorded frame.';
         row5d.appendChild(label5d);
         var check5d = document.createElement('input');
         check5d.type = 'checkbox';
@@ -1430,6 +1437,7 @@
         row6.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label6 = document.createElement('span');
         label6.textContent = 'Vertex color sRGB>linear:';
+        label6.title = 'On: converts vertex colors to linear color, as glTF requires. The colors then look as in the viewer. Off: writes the colors unchanged.';
         row6.appendChild(label6);
         var check6 = document.createElement('input');
         check6.type = 'checkbox';
@@ -1446,7 +1454,7 @@
         row7.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label7 = document.createElement('span');
         label7.textContent = 'Flat metal/rough from viewer:';
-        label7.title = 'On: texture-less materials use the viewer values. Off: neutral metal 0, roughness 0.5.';
+        label7.title = 'On: materials without textures use the metalness and roughness of the viewer. Off: metalness 0, roughness 0.5.';
         row7.appendChild(label7);
         var check7 = document.createElement('input');
         check7.type = 'checkbox';
@@ -1463,7 +1471,7 @@
         row8.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label8 = document.createElement('span');
         label8.textContent = 'Export scale:';
-        label8.title = 'Uniform scale of the whole model. 0.01 for models authored in centimetres.';
+        label8.title = 'Multiplies the size of the whole model. Use 0.01 for a model in centimeters.';
         row8.appendChild(label8);
         var input8 = document.createElement('input');
         input8.type = 'number';
@@ -1486,6 +1494,7 @@
         row3.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label3 = document.createElement('span');
         label3.textContent = 'MR format:';
+        label3.title = 'File format of the merged metallic-roughness textures. JPEG: smaller files. PNG: no quality loss.';
         row3.appendChild(label3);
         var sel3 = document.createElement('select');
         sel3.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';
@@ -1507,6 +1516,7 @@
         row4.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:6px;';
         var label4 = document.createElement('span');
         label4.textContent = 'Rest pose:';
+        label4.title = 'Sets the rest pose of the skeleton. Clip 1st frame: the first recorded frame. Static Pose: the Static Pose of the viewer.';
         row4.appendChild(label4);
         var sel4 = document.createElement('select');
         sel4.style.cssText = 'background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:2px 4px;font-family:monospace;font-size:11px;';

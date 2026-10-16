@@ -7,6 +7,8 @@
 
 ### Changed
 - The zip file is compressed. Textures are stored as they are, because PNG and JPEG are already compressed.
+- Every setting has a tooltip that tells what it does.
+- The script header has `@license MIT`.
 
 ### Fixed
 - The GLB no longer has an empty node for the skipped wireframe overlay.
