@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.3
+
+### Changed
+- The script header has no fixed update address. Tampermonkey updates the script from the place that you installed it from (GitHub or Greasy Fork).
+
 ## v1.1.2
 
 ### New
