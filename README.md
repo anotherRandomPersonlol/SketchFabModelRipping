@@ -134,6 +134,8 @@ Models not in the social preview image but used in the README.md:
 
 ## Disclaimer
 
+Sketchfab Ripper is **not an official Sketchfab tool**. It is not made, endorsed or supported by Sketchfab. For official downloads, use the Download button on [sketchfab.com](https://sketchfab.com). The script icon is the Sketchfab logo, used as described on the [Sketchfab press page](https://sketchfab.com/press).
+
 This tool is for **personal archival and educational use**. You are responsible for obeying:
 
 - the copyright of the model creators,

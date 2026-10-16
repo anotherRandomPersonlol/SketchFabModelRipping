@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.1
+
+### Changed
+- The script has an icon in Tampermonkey and on Greasy Fork: the Sketchfab logo (`docs/icon64.png`), used as described on the Sketchfab press page.
+- README: the script is not an official Sketchfab tool.
+
 ## v1.3.0
 
 ### Changed
