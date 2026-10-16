@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Sketchfab Ripper
-// @version      1.1.0
+// @version      1.1.1
 // @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
-// @include      /^https?://(www\.)?sketchfab\.com/.*
+// @match        https://sketchfab.com/*
+// @match        https://www.sketchfab.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js
 // @run-at       document-start
@@ -549,14 +550,43 @@
     // ====================================================================
     // attachbody
     // ====================================================================
-    function geomKey(o) {
+    function geomKey(o, noIndices) {
         var v = o && o._attributes && o._attributes.Vertex && o._attributes.Vertex._elements;
         if (!v || !v.length) return '';
         var n = v.length, parts = [n], k;
         for (k = 0; k < 16; k++) parts.push(v[Math.floor(k * (n - 1) / 15)]);
-        var pr = o._primitives && o._primitives[0];
-        parts.push(pr && pr.indices && pr.indices._elements ? pr.indices._elements.length : -1);
+        if (!noIndices) {
+            var pr = o._primitives && o._primitives[0];
+            parts.push(pr && pr.indices && pr.indices._elements ? pr.indices._elements.length : -1);
+        }
         return parts.join(',');
+    }
+
+    // The viewer can hold a second copy of a mesh that only has LINES (its wireframe display).
+    // It has the same vertices as the real mesh but no triangles. Returns the index of the real
+    // mesh when obj is such an overlay, otherwise -1. A line mesh with no twin is real and is kept.
+    function wireOverlayTwin(list, idx) {
+        var obj = list[idx], prims = obj && obj._primitives, i, p, hasLines = false, key;
+        if (!prims || !prims.length) return -1;
+        for (i = 0; i < prims.length; i++) {
+            p = prims[i];
+            if (!p || !p.indices) continue;
+            if (p.mode === 1 || p.mode === 2 || p.mode === 3) hasLines = true;
+            else return -1;   // has a triangle (or point) primitive: not an overlay
+        }
+        if (!hasLines) return -1;
+        key = geomKey(obj, true);
+        if (!key) return -1;
+        for (i = 0; i < list.length; i++) {
+            var o2 = list[i], pr2 = o2 && o2._primitives, j, tri = false;
+            if (i === idx || !pr2 || geomKey(o2, true) !== key) continue;
+            for (j = 0; j < pr2.length; j++) {
+                var m2 = pr2[j] && pr2[j].mode;
+                if (pr2[j] && pr2[j].indices && (m2 === undefined || m2 === null || m2 === 4 || m2 === 5 || m2 === 6)) tri = true;
+            }
+            if (tri) return i;
+        }
+        return -1;
     }
 
     window.attachbody = function (obj) {
@@ -1861,6 +1891,7 @@
             });
 
             var meshes = [], accs = [], bvs = [], mats = [];
+            var skippedNodes = {};    // node index -> true for wireframe overlay meshes that are not exported
             var matsChannelInfo = {}; // mi -> { channelName: {url, name} }
             var matsFlat = {};        // mi -> { channelName: {enable, factor, color} } from the material model
             var binChunks = [], off = 0;   // Uint8Array chunks, joined once at the end
@@ -1888,6 +1919,15 @@
                 if (!mdl.vertex || mdl.vertex.length === 0) return;
                 var nm = obj._name || (obj.stateset && obj.stateset._name) || ('mesh_' + mIdx);
                 var vc = mdl.vertex.length / 3;
+
+                var twinIdx = wireOverlayTwin(allNodes, mIdx);
+                if (twinIdx >= 0) {
+                    var twinObj = allNodes[twinIdx];
+                    log('mesh ' + nm + ': skipped, it is the wireframe overlay (lines only) of "' +
+                        (twinObj._name || (twinObj.stateset && twinObj.stateset._name) || ('mesh_' + twinIdx)) + '"');
+                    skippedNodes[mIdx] = true;
+                    return;
+                }
 
                 var posArr = new Float32Array(mdl.vertex);
                 var posMin = [Infinity, Infinity, Infinity];
@@ -2918,13 +2958,17 @@
 
             if (tracks.length) {
                 var animList = [];
+                var noMotion = [];
                 tracks.forEach(function (tr) {
                     if (tr.channels.length) {
                         animList.push({ name: tr.name, samplers: tr.samplers, channels: tr.channels });
                         log('animation "' + tr.name + '": ' + tr.channels.length + ' channels, '
                             + tr.times.length + ' frames');
+                    } else {
+                        noMotion.push(tr.name);
                     }
                 });
+                if (noMotion.length) log('clips without motion, not exported (' + noMotion.length + '): ' + noMotion.join(', '));
                 if (animList.length) animations = animList;
             }
 
@@ -2940,7 +2984,7 @@
 
             var naturalRoots = [];
             nodes.forEach(function (n, i) {
-                if (i === sceneRootIdx) return;
+                if (i === sceneRootIdx || skippedNodes[i]) return;
                 var hasP = false;
                 for (var j = 0; j < nodes.length; j++) {
                     if (nodes[j].children && nodes[j].children.indexOf(i) !== -1) { hasP = true; break; }
