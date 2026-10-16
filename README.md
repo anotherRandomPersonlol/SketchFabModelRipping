@@ -127,6 +127,9 @@ Models in the social preview image. All four models use the [CC BY 4.0](https://
 - [Shiba](https://sketchfab.com/3d-models/shiba-faef9fe5ace445e7b2989d1c1ece361c) by [zixisun02](https://sketchfab.com/zixisun51)
 - [FREE 1975 Porsche 911 (930) Turbo](https://sketchfab.com/3d-models/free-1975-porsche-911-930-turbo-8568d9d14a994b9cae59499f0dbed21e) by [Lionsharp Studios](https://sketchfab.com/lionsharp)
 
+Models not in the social preview image but used in the README.md:
+- [Simple rigged and animated character](https://sketchfab.com/3d-models/simple-rigged-and-animated-character-18ba27a4a60b4b70be6d80234ae62413) by [Christian Camelo](https://sketchfab.com/christiances)
+
 ## Disclaimer
 
 This tool is for **personal archival and educational use**. You are responsible for obeying:
