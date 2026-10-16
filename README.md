@@ -28,10 +28,14 @@ Sketchfab Ripper is a userscript for Tampermonkey. It exports the model that the
 ## Install
 
 1. Install Tampermonkey in your browser.
-2. Open this link: [Sketchfab-ripper.user.js](https://raw.githubusercontent.com/anotherRandomPersonlol/SketchFabModelRipping/main/src/Sketchfab-ripper.user.js).
+2. Open one of these links:
+   - [Greasy Fork](https://greasyfork.org/en/scripts/600578-sketchfab-ripper)
+   - [GitHub (Sketchfab-ripper.user.js)](https://raw.githubusercontent.com/anotherRandomPersonlol/SketchFabModelRipping/main/src/Sketchfab-ripper.user.js)
 3. In the Tampermonkey page that opens, click **Install**.
 
-Tampermonkey checks the link for new versions and updates the script.
+Install from one place only. If you have the script from both, remove one copy.
+
+Tampermonkey updates the script from the place that you installed it from.
 
 If the install page does not open:
 
