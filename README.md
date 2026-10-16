@@ -87,7 +87,7 @@ Click the gear icon in the panel. The script keeps your settings for the next vi
 
 ## Report a problem
 
-If a model does not export correctly, [open an issue](../../issues/new/choose) and use the bug report form. The form asks for the model link, your settings, the steps and the console log. Without these data, the problem cannot be found.
+If a model does not export correctly, [open an issue](../../issues/new/choose) and use the bug report form. For questions, use [Discussions](../../discussions). See [CONTRIBUTING.md](CONTRIBUTING.md) for code changes. The form asks for the model link, your settings, the steps and the console log. Without these data, the problem cannot be found.
 
 ## For developers
 
