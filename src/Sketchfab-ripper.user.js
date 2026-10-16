@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sketchfab Ripper
 // @namespace    https://github.com/anotherRandomPersonlol/SketchFabModelRipping
-// @version      1.2.0
+// @version      1.2.1
 // @description  Download Sketchfab models as GLB: skeleton, recorded animation clips, PBR textures, vertex colours, morph targets
 // @author       anotherRandomPersonlol
 // @license      MIT
@@ -2822,35 +2822,53 @@
                         }
                         return false;
                     };
-                    // Keep still clips: a clip in which no joint of this skeleton moves gets a pose (2 equal keys).
-                    var stillClip = [], anyStill = false;
-                    if (CONFIG.KEEP_STILL_CLIPS) {
-                        for (var sc = 0; sc < tracks.length; sc++) {
-                            var scMoves = false;
-                            for (var sjx = 0; sjx < jointCount && !scMoves; sjx++) scMoves = jointClipMoves(sjx, sc);
-                            stillClip[sc] = !scMoves;
-                            if (!scMoves) anyStill = true;
+                    // Rest pose palette, chosen as in the rest pose code below (without its log lines).
+                    var smE = window.staticPoseSnapshot && window.staticPoseSnapshot.meshes[mIdx];
+                    var restPalE = (CONFIG.REST_POSE_SOURCE === 'static' && smE && smE.palette &&
+                                    smE.palette.length >= paletteRef.palette.length) ? smE.palette : paletteRef.palette;
+                    // A joint that does not move in a clip but is held away from the rest pose needs a constant
+                    // pose in that clip. Without it, a glTF player shows the rest pose for that joint.
+                    var jointDiffersFromRest = function (jx, cx) {
+                        var f0 = tracks[cx].frames[0].meshes[mIdx], p0 = f0 && f0.palette;
+                        if (!p0 || p0.length < (jx + 1) * 12 || restPalE.length < (jx + 1) * 12) return false;
+                        var a = expandMat3x4(p0, jx), b = expandMat3x4(restPalE, jx);
+                        for (var dv = 0; dv < 16; dv++) {
+                            if (Math.abs(a[dv] - b[dv]) > 1e-5 * Math.max(1, Math.abs(b[dv]))) return true;
                         }
-                        if (anyStill) log('skin ' + skinIdx + ': keeping ' + stillClip.filter(function (x) { return x; }).length + ' still clip(s) as pose clips');
+                        return false;
+                    };
+                    // Still clip: no joint of this skeleton moves in it. Keep still clips: every joint gets a pose
+                    // (2 equal keys). Otherwise the clip gets no skeleton channels.
+                    var stillClip = [], nStill = 0;
+                    for (var sc = 0; sc < tracks.length; sc++) {
+                        var scMoves = false;
+                        for (var sjx = 0; sjx < jointCount && !scMoves; sjx++) scMoves = jointClipMoves(sjx, sc);
+                        stillClip[sc] = !scMoves;
+                        if (!scMoves) nStill++;
                     }
+                    if (nStill && CONFIG.KEEP_STILL_CLIPS) log('skin ' + skinIdx + ': keeping ' + nStill + ' still clip(s) as pose clips');
+                    var holdPoses = 0;
                     for (var jn = 0; jn < jointCount; jn++) {
-                        // Per-clip motion test: only clips where this joint varies get
-                        // channels. This lets separate clips compose in Blender's
-                        // NLA without fighting each other.
-                        var clipHasMotion = [];
-                        var anyMotion = false;
+                        // Per-clip motion test: clips where this joint varies get its keys. A clip where it does
+                        // not vary gets a constant pose only when that pose is not the rest pose.
+                        var clipHasMotion = [], clipNeeds = [];
+                        var anyMotion = false, anyNeed = false;
                         for (var cj = 0; cj < tracks.length; cj++) {
                             clipHasMotion[cj] = jointClipMoves(jn, cj);
-                            if (clipHasMotion[cj]) anyMotion = true;
+                            if (clipHasMotion[cj]) { anyMotion = true; tracks[cj].moving = true; }
+                            clipNeeds[cj] = clipHasMotion[cj] ||
+                                (stillClip[cj] ? !!CONFIG.KEEP_STILL_CLIPS : jointDiffersFromRest(jn, cj));
+                            if (clipNeeds[cj]) anyNeed = true;
                         }
-                        if (!anyMotion && !anyStill) continue;
+                        if (!anyNeed) continue;
                         if (anyMotion) animatedCount++;
                         var nIdx = jointNodeIndices[jn];
                         animatedJoints[nIdx] = true;
 
                         for (var ci = 0; ci < tracks.length; ci++) {
-                            var poseOnly = !clipHasMotion[ci] && !!stillClip[ci];   // still clip: one pose from the clip's first frame
-                            if (!clipHasMotion[ci] && !poseOnly) continue;   // only clips where it moved
+                            if (!clipNeeds[ci]) continue;
+                            var poseOnly = !clipHasMotion[ci];   // one pose from the clip's first frame
+                            if (poseOnly && !stillClip[ci]) holdPoses++;
                             var tr = tracks[ci];
                             var useN = poseOnly ? 1 : tr.frames.length;
                             var T = [], R = [], S = [], RV = [];
@@ -3005,6 +3023,7 @@
                     log('skin', skinIdx, 'for mesh', meshes[nodes[meshNodeIdx].mesh].name,
                         '→', jointCount, 'joints,', animatedCount, 'animated,',
                         tracks.length, 'clip(s)');
+                    if (holdPoses) log('skin ' + skinIdx + ': ' + holdPoses + ' joint pose(s) held in clips where the joint does not move but is away from the rest pose');
                     if (holdJoints) log('skin ' + skinIdx + ': ' + holdJoints + ' joint channel set(s) with show/hide-by-scale switches kept instant (hold keys)');
                     if (ibmFixed) log('skin ' + skinIdx + ': ' + ibmFixed + ' sheared joint(s) stored exactly via the inverse bind matrix (plain TRS joints)');
                     var nHelp = 0; for (var hk in helperOf) if (helperOf.hasOwnProperty(hk)) nHelp++;
@@ -3084,14 +3103,27 @@
                             nodes[nodeIdx].rotation = dRest.rotation;
                             nodes[nodeIdx].scale = dRest.scale;
                             tracks.forEach(function (trk, ti) {
-                                if (!moves[ti]) return;
+                                if (moves[ti]) trk.moving = true;
+                            });
+                            var nodeHolds = 0;
+                            tracks.forEach(function (trk, ti) {
+                                if (!moves[ti]) {
+                                    // Still in this clip: hold its pose if that is not the rest pose (and the clip moves).
+                                    var h0 = trk.frames[0].meshes[mIdx], hw = h0 && h0.world, away = false;
+                                    for (var hv = 0; hw && hv < 16 && !away; hv++) {
+                                        if (Math.abs(hw[hv] - rest0[hv]) > 1e-5 * Math.max(1, Math.abs(rest0[hv]))) away = true;
+                                    }
+                                    if (!away || !(trk.moving || CONFIG.KEEP_STILL_CLIPS)) return;
+                                    nodeHolds++;
+                                }
                                 emitNodeTRS(trk, nodeIdx, function (f) {
                                     var fx = trk.frames[f].meshes[mIdx];
                                     return (fx && fx.world) || rest0;
                                 });
                             });
                             log('node animation: ' + nodes[nodeIdx].name + ' moves in ' +
-                                moves.filter(function (x) { return x; }).length + ' clip(s)');
+                                moves.filter(function (x) { return x; }).length + ' clip(s)' +
+                                (nodeHolds ? ', pose held in ' + nodeHolds + ' clip(s)' : ''));
                         }
                     }
 
@@ -3108,6 +3140,10 @@
                         tracks.forEach(function (trk) {
                             var base = trk.frames[0].meshes[mIdx], bw = base && base.weights, varies = false;
                             if (!bw) return;
+                            var restOff = false;   // constant in this clip, but not the rest weights
+                            if (wr) for (var rk = 0; rk < mi2.n && !restOff; rk++) {
+                                if (Math.abs((bw[rk] || 0) - (wr[rk] || 0)) > 1e-4) restOff = true;
+                            }
                             for (var fw2 = 1; fw2 < trk.frames.length && !varies; fw2++) {
                                 var ww = trk.frames[fw2].meshes[mIdx];
                                 var wv2 = ww && ww.weights;
@@ -3116,7 +3152,8 @@
                                     if (Math.abs((wv2[kk] || 0) - (bw[kk] || 0)) > 1e-4) { varies = true; break; }
                                 }
                             }
-                            if (!varies) return;
+                            if (varies) trk.moving = true;
+                            else if (!restOff || !(trk.moving || CONFIG.KEEP_STILL_CLIPS)) return;
                             var out = new Float32Array(trk.frames.length * mi2.n);
                             for (var fw3 = 0; fw3 < trk.frames.length; fw3++) {
                                 var wm = trk.frames[fw3].meshes[mIdx], wa = (wm && wm.weights) || bw;
@@ -3128,7 +3165,7 @@
                             trk.samplers.push({ input: trk.timeAcc, interpolation: 'LINEAR', output: aWt });
                             trk.channels.push({ sampler: trk.samplers.length - 1,
                                                 target: { node: nodeIdx, path: 'weights' } });
-                            log('morph animation: ' + nodes[nodeIdx].name + ' (' + mi2.n + ' target(s))');
+                            log('morph animation: ' + nodes[nodeIdx].name + ' (' + mi2.n + ' target(s))' + (varies ? '' : ', weights held'));
                         });
                     }
                 });

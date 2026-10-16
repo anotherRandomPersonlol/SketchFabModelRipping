@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.1
+
+### Fixed
+- A joint that does not move in a clip, but is held away from the rest pose, now keeps that pose in the clip. Before, a glTF player showed the rest pose for that joint, so the clip looked wrong (for example Sit1 of "Simple rigged and animated character"). The same fix applies to moving meshes without a skin and to morph weights.
+
 ## v1.2.0
 
 ### New

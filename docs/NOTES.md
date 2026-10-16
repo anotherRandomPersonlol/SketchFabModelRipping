@@ -453,3 +453,9 @@ instead of name; collision only if an artist texture is literally named <mesh>_M
 - A clip that moves only an unskinned mesh or morph weights still counts as still for the skeleton and gets the skeleton pose too. The setting is off by default for that reason.
 - Not covered: pose clips of unskinned nodes or morph weights. Clips with no channel are still left out of the file.
 - Test needed: the "Simple rigged and animated character" model, which has 8 one-frame pose clips. Expect the log line `skin N: keeping 8 still clip(s) as pose clips` and 8 more animations in the glTF viewer, with the validator reporting no new errors.
+
+## Round 21: held poses in clips (v1.2.1)
+
+- Bug (also in older versions): Sit1 of "Simple rigged and animated character" looked wrong in the glTF viewer. Sit1 had 56 of 60 channels: joint 12 does not move in Sit1, so it got no channel, and the player showed it in the rest pose (here the Static Pose, which differs on 15/15 joints). Idle (28 channels missing), Stop (40) and Watch (20) had the same gap.
+- Fix: in a clip where a joint does not move, it gets a constant pose (2 equal keys from the clip's first frame) when that pose differs from the rest pose (`jointDiffersFromRest`, same 1e-5 test as the motion test). Same rule for node motion of unskinned meshes and for morph weights. Holds for node/morph are only written for clips that move something (or with Keep still clips on), so a still clip with the setting off is still left out.
+- Log: `skin N: k joint pose(s) held in clips where the joint does not move but is away from the rest pose`; node lines end with `pose held in k clip(s)`; morph lines end with `weights held`.
