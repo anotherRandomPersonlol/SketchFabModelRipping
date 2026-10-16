@@ -98,6 +98,13 @@ If a model does not export correctly, [open an issue](../../issues/new/choose) a
 - Original script injection: Risk
 - Skeleton, animation and export work: anotherRandomPersonlol
 
+Models in the social preview image. All four models use the [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license. The image was rendered in Blender, with new lighting, a new background and text added.
+
+- [phoenix bird](https://sketchfab.com/3d-models/phoenix-bird-844ba0cf144a413ea92c779f18912042) by [NORBERTO-3D](https://sketchfab.com/norberto3d)
+- [Just a girl](https://sketchfab.com/3d-models/just-a-girl-b2359160a4f54e76b5ae427a55d9594d) by [腱鞘炎の人](https://sketchfab.com/Kensyouen)
+- [Shiba](https://sketchfab.com/3d-models/shiba-faef9fe5ace445e7b2989d1c1ece361c) by [zixisun02](https://sketchfab.com/zixisun51)
+- [FREE 1975 Porsche 911 (930) Turbo](https://sketchfab.com/3d-models/free-1975-porsche-911-930-turbo-8568d9d14a994b9cae59499f0dbed21e) by [Lionsharp Studios](https://sketchfab.com/lionsharp)
+
 ## Disclaimer
 
 This tool is for **personal archival and educational use**. You are responsible for obeying:
